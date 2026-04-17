@@ -19,12 +19,16 @@ function PublicRoute({ children }) {
   if (user) return <Navigate to="/dashboard" replace />;
   return children;
 }
+import { Toaster } from "react-hot-toast";
 
 export default function App() {
   return (
     <AuthProvider>
       <SocketProvider>
+        <Toaster position="top-center" reverseOrder={false} />
         <BrowserRouter>
+...
+
           <Routes>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/auth" element={<PublicRoute><AuthPage /></PublicRoute>} />
