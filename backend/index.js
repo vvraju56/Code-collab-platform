@@ -17,8 +17,14 @@ const app = express();
 const server = http.createServer(app);
 
 // ─── CORS ────────────────────────────────────────────────────────────────────
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:3000",
+  process.env.FRONTEND_URL
+].filter(Boolean);
+
 app.use(cors({
-  origin: ["http://localhost:5173", "http://localhost:3000"],
+  origin: allowedOrigins,
   credentials: true
 }));
 app.use(express.json({ limit: "10mb" }));
@@ -26,7 +32,7 @@ app.use(express.json({ limit: "10mb" }));
 // ─── SOCKET.IO ───────────────────────────────────────────────────────────────
 const io = new Server(server, {
   cors: {
-    origin: ["http://localhost:5173", "http://localhost:3000"],
+    origin: allowedOrigins,
     methods: ["GET", "POST"],
     credentials: true
   }
