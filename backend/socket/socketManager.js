@@ -85,6 +85,40 @@ function initSocket(io) {
       console.log(`📁 ${user.username} joined project ${projectId}`);
     });
 
+    // ─── WebRTC SIGNALING ───────────────────────────────────────────────────
+    socket.on("webrtc_signal", ({ to, signal, type, projectId }) => {
+      // Signaling for video/audio/screen share
+      io.to(to).emit("webrtc_signal", {
+        from: socket.id,
+        signal,
+        type,
+        user: {
+          username: user.username,
+          socketId: socket.id
+        }
+      });
+    });
+
+    socket.on("toggle_media", ({ projectId, type, enabled }) => {
+      const room = `project:${projectId}`;
+      socket.to(room).emit("user_media_toggled", {
+        socketId: socket.id,
+        type, // 'video' | 'audio' | 'screen'
+        enabled
+      });
+    });
+
+    // ─── SHARED DEBUGGING ───────────────────────────────────────────────────
+    socket.on("debug_event", ({ projectId, event, data }) => {
+      const room = `project:${projectId}`;
+      // event: 'breakpoint_added' | 'breakpoint_removed' | 'execution_paused' | 'step'
+      socket.to(room).emit("debug_event", {
+        from: socket.id,
+        event,
+        data
+      });
+    });
+
     socket.on("leave_project", ({ projectId }) => {
       const room = `project:${projectId}`;
       socket.leave(room);

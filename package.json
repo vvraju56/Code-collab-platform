@@ -9,6 +9,8 @@
     "dev:ws": "cd ws-server && npm run dev",
     "dev:terminal": "cd terminal-service && npm start",
     "dev:execution": "cd execution-service && npm start",
+    "kill-ports": "npx kill-port 4000 5000 5173 1234 5001",
+    "clean-start": "npm run kill-ports && powershell ./run-local.ps1",
     "docker:up": "docker-compose up --build",
     "docker:down": "docker-compose down"
   }

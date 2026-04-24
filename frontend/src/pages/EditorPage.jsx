@@ -13,6 +13,7 @@ import VersionPanel from "../components/editor/VersionPanel";
 import ExecutionPanel from "../components/editor/ExecutionPanel";
 import AIAssistantPanel from "../components/editor/AIAssistantPanel";
 import TerminalPanel from "../components/editor/TerminalPanel";
+import ConferencePanel from "../components/editor/ConferencePanel";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
@@ -95,7 +96,8 @@ export default function EditorPage() {
     { id: "versions", label: "History", icon: "🔖" },
     { id: "run", label: "Run", icon: "▶" },
     { id: "ai", label: "AI", icon: "✦" },
-    { id: "terminal", label: "Term", icon: "⌘" }
+    { id: "terminal", label: "Term", icon: "⌘" },
+    { id: "call", label: "Call", icon: "📹" }
   ];
 
   return (
@@ -312,6 +314,7 @@ export default function EditorPage() {
               ytext={ytext}
               awareness={awareness}
               readOnly={myRole === "viewer"}
+              projectId={projectId}
             />
           </div>
 
@@ -405,6 +408,9 @@ export default function EditorPage() {
                 )}
                 {rightPanel === "terminal" && (
                   <TerminalPanel projectId={projectId} />
+                )}
+                {rightPanel === "call" && (
+                  <ConferencePanel projectId={projectId} />
                 )}
               </div>
             </motion.aside>

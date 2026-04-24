@@ -67,5 +67,38 @@ router.post("/chat", async (req, res) => {
   }
 });
 
+// POST /api/ai/suggest — inline code suggestions
+router.post("/suggest", async (req, res) => {
+  try {
+    const { code, language, fileName } = req.body;
+    const encKey = req.user.openai?.encryptedApiKey;
+    if (!encKey) return res.status(400).json({ error: "OpenAI API key not set" });
+
+    const apiKey = decryptString(encKey);
+    const client = new OpenAI({ apiKey });
+
+    const completion = await client.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `You are an expert AI pair programmer. Complete the following ${language} code for file "${fileName}". Provide ONLY the suggested code completion without markdown blocks or explanations.`
+        },
+        {
+          role: "user",
+          content: code
+        }
+      ],
+      max_tokens: 100,
+      temperature: 0
+    });
+
+    const suggestion = completion.choices?.[0]?.message?.content || "";
+    res.json({ ok: true, suggestion });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;
 
