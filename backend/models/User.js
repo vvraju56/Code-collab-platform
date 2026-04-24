@@ -35,6 +35,19 @@ const userSchema = new mongoose.Schema({
   },
   createdAt: { type: Date, default: Date.now },
   lastSeen: { type: Date, default: Date.now }
+  ,
+  openai: {
+    encryptedApiKey: { type: String, default: "" },
+    keyVersion: { type: Number, default: 1 },
+    last4: { type: String, default: "" },
+    createdAt: { type: Date }
+  },
+  github: {
+    encryptedAccessToken: { type: String, default: "" },
+    keyVersion: { type: Number, default: 1 },
+    username: { type: String, default: "" },
+    createdAt: { type: Date }
+  }
 }, { timestamps: true });
 
 // Hash password before save

@@ -1,0 +1,15 @@
+{
+  "name": "collab-platform-root",
+  "private": true,
+  "scripts": {
+    "install-all": "npm install && cd backend && npm install && cd ../frontend && npm install && cd ../ws-server && npm install && cd ../terminal-service && npm install && cd ../execution-service && npm install",
+    "dev": "npx concurrently \"npm run dev:backend\" \"npm run dev:frontend\" \"npm run dev:ws\" \"npm run dev:terminal\" \"npm run dev:execution\"",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:ws": "cd ws-server && npm run dev",
+    "dev:terminal": "cd terminal-service && npm start",
+    "dev:execution": "cd execution-service && npm start",
+    "docker:up": "docker-compose up --build",
+    "docker:down": "docker-compose down"
+  }
+}

@@ -4,6 +4,7 @@ const Version = require("../models/Version");
 const File = require("../models/File");
 const Project = require("../models/Project");
 const { authMiddleware } = require("../middleware/auth");
+const { getRoleForProject } = require("../middleware/rbac");
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -40,6 +41,13 @@ router.post("/commit", async (req, res) => {
 
     const file = await File.findById(fileId);
     if (!file) return res.status(404).json({ error: "File not found" });
+
+    const project = await Project.findById(file.project);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    const role = getRoleForProject(project, req.user._id);
+    if (!role || (role !== "editor" && role !== "admin")) {
+      return res.status(403).json({ error: "Insufficient permissions" });
+    }
 
     // Get last commit for this file
     const lastVersion = await Version.findOne({ file: fileId }).sort({ createdAt: -1 });
@@ -121,6 +129,13 @@ router.post("/:id/revert", async (req, res) => {
   try {
     const version = await Version.findById(req.params.id).populate("file");
     if (!version) return res.status(404).json({ error: "Version not found" });
+
+    const project = await Project.findById(version.project);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    const role = getRoleForProject(project, req.user._id);
+    if (!role || (role !== "editor" && role !== "admin")) {
+      return res.status(403).json({ error: "Insufficient permissions" });
+    }
 
     await File.findByIdAndUpdate(version.file._id, {
       content: version.content,

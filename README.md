@@ -114,6 +114,32 @@ docker-compose up --build
 
 ---
 
+## Monorepo (Phase 1 scaffold)
+
+This repository is being upgraded into a **monorepo** to match the required production architecture:
+
+- **Existing apps** (still runnable): `backend/`, `frontend/`
+- **New services** (scaffolded in Phase 1):
+  - `services/ws` (Socket.IO gateway + Redis adapter, `/health` on `:5001`)
+  - `services/executor` (execution service stub, `/health` on `:5002`)
+- **Shared package**: `packages/shared`
+
+### Run everything (dev)
+
+From repo root:
+
+```bash
+npm install
+npm run dev
+```
+
+Services:
+
+- Frontend: `http://localhost:5173`
+- Backend: `http://localhost:5000`
+- WS: `http://localhost:5001/health`
+- Executor: `http://localhost:5002/health`
+
 ## Features
 
 ### Realtime Collaboration

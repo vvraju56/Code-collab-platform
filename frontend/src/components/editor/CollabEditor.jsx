@@ -1,5 +1,6 @@
 import { useRef, useEffect } from "react";
 import Editor from "@monaco-editor/react";
+import { MonacoBinding } from "y-monaco";
 
 const MONACO_THEME = {
   base: "vs-dark",
@@ -33,10 +34,21 @@ const MONACO_THEME = {
   }
 };
 
-export default function CollabEditor({ file, content, onChange, onCursorChange, cursors = {} }) {
+export default function CollabEditor({
+  file,
+  content,
+  onChange,
+  onCursorChange,
+  cursors = {},
+  ydoc,
+  ytext,
+  awareness,
+  readOnly = false,
+}) {
   const editorRef = useRef(null);
   const decorationsRef = useRef([]);
   const monacoRef = useRef(null);
+  const yBindingRef = useRef(null);
 
   function handleMount(editor, monaco) {
     editorRef.current = editor;
@@ -44,6 +56,17 @@ export default function CollabEditor({ file, content, onChange, onCursorChange, 
 
     monaco.editor.defineTheme("codebloc-dark", MONACO_THEME);
     monaco.editor.setTheme("codebloc-dark");
+
+    if (ytext && awareness) {
+      const model = editor.getModel();
+      yBindingRef.current?.destroy?.();
+      yBindingRef.current = new MonacoBinding(
+        ytext,
+        model,
+        new Set([editor]),
+        awareness,
+      );
+    }
 
     // Cursor position change
     editor.onDidChangeCursorPosition(e => {
@@ -80,6 +103,27 @@ export default function CollabEditor({ file, content, onChange, onCursorChange, 
 
   const monacoLang = (file?.language || "plaintext") === "markdown" ? "markdown" : file?.language || "plaintext";
 
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.updateOptions({ readOnly });
+  }, [readOnly]);
+
+  useEffect(() => {
+    // When switching files, rebind if editor already mounted.
+    const editor = editorRef.current;
+    if (!editor || !ytext || !awareness) return;
+    const model = editor.getModel();
+    yBindingRef.current?.destroy?.();
+    yBindingRef.current = new MonacoBinding(
+      ytext,
+      model,
+      new Set([editor]),
+      awareness,
+    );
+    return () => yBindingRef.current?.destroy?.();
+  }, [file?._id, ytext, awareness]);
+
   return (
     <div className="h-full w-full relative">
       {/* Remote cursor CSS */}
@@ -115,6 +159,7 @@ export default function CollabEditor({ file, content, onChange, onCursorChange, 
           onMount={handleMount}
           theme="codebloc-dark"
           options={{
+            readOnly,
             fontSize: 14,
             fontFamily: '"JetBrains Mono", "Fira Code", monospace',
             fontLigatures: true,

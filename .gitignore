@@ -5,3 +5,10 @@ dist/
 build/
 *.log
 .gemini/
+.turbo/
+.cache/
+.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*

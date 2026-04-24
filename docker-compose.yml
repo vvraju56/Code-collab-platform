@@ -1,74 +1,66 @@
-version: "3.9"
-
 services:
-  # ── MongoDB ───────────────────────────────────────────────────────────────
-  mongo:
-    image: mongo:7
-    container_name: codebloc_mongo
-    restart: unless-stopped
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongo_data:/data/db
-    environment:
-      MONGO_INITDB_DATABASE: collabDB
-    networks:
-      - codebloc_net
-
-  # ── Redis ─────────────────────────────────────────────────────────────────
-  redis:
-    image: redis:7-alpine
-    container_name: codebloc_redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    networks:
-      - codebloc_net
-
-  # ── Backend ───────────────────────────────────────────────────────────────
-  backend:
+  # Main API Gateway / Server
+  api-server:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: codebloc_backend
-    restart: unless-stopped
     ports:
       - "5000:5000"
     environment:
-      PORT: 5000
-      MONGO_URI: mongodb://mongo:27017/collabDB
-      JWT_SECRET: supersecretkey123
-      REDIS_URL: redis://redis:6379
-      NODE_ENV: production
+      - MONGO_URI=mongodb://mongo:27017/collab-platform
+      - JWT_SECRET=${JWT_SECRET}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
+      - PORT=5000
     depends_on:
       - mongo
       - redis
-    volumes:
-      - ./backend:/app
-      - /app/node_modules
-    networks:
-      - codebloc_net
 
-  # ── Frontend ──────────────────────────────────────────────────────────────
-  frontend:
+  # Yjs Sync Server
+  ws-server:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: codebloc_frontend
-    restart: unless-stopped
+      context: ./ws-server
     ports:
-      - "5173:80"
+      - "1234:1234"
+    environment:
+      - PORT=1234
+      - REDIS_URL=redis://redis:6379
     depends_on:
-      - backend
-    networks:
-      - codebloc_net
+      - redis
+
+  # Terminal Service
+  terminal-service:
+    build:
+      context: ./terminal-service
+    ports:
+      - "4000:4000"
+    environment:
+      - PORT=4000
+
+  # Execution Service
+  execution-service:
+    build:
+      context: ./execution-service
+    ports:
+      - "5001:5001"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - PORT=5001
+
+  # Databases
+  mongo:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
 
 volumes:
-  mongo_data:
-  redis_data:
-
-networks:
-  codebloc_net:
-    driver: bridge
+  mongo-data:

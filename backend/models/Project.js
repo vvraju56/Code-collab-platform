@@ -31,7 +31,13 @@ const projectSchema = new mongoose.Schema({
   stars: { type: Number, default: 0 },
   forks: { type: Number, default: 0 },
   totalCommits: { type: Number, default: 0 },
-  lastActivity: { type: Date, default: Date.now }
+  lastActivity: { type: Date, default: Date.now },
+  github: {
+    owner: { type: String, default: "" },
+    repo: { type: String, default: "" },
+    branch: { type: String, default: "main" },
+    linkedAt: { type: Date }
+  }
 }, { timestamps: true });
 
 // Index for search

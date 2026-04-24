@@ -12,6 +12,8 @@ const fileRoutes = require("./routes/files");
 const versionRoutes = require("./routes/versions");
 const executionRoutes = require("./routes/execution");
 const dashboardRoutes = require("./routes/dashboard");
+const aiRoutes = require("./routes/ai");
+const githubRoutes = require("./routes/github");
 
 const app = express();
 const server = http.createServer(app);
@@ -45,6 +47,8 @@ app.use("/api/files", fileRoutes);
 app.use("/api/versions", versionRoutes);
 app.use("/api/execute", executionRoutes);
 app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/ai", aiRoutes);
+app.use("/api/github", githubRoutes);
 
 app.get("/api/health", (req, res) => res.json({ status: "ok", time: new Date() }));
 

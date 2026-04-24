@@ -2,7 +2,8 @@ import { useState } from "react";
 import axios from "axios";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
-const SUPPORTED = ["javascript", "python", "bash"];
+const EXEC_API = import.meta.env.VITE_EXEC_API_URL || "http://localhost:5001";
+const SUPPORTED = ["javascript", "python", "cpp"];
 
 export default function ExecutionPanel({ content, language }) {
   const [output, setOutput] = useState("");
@@ -17,7 +18,7 @@ export default function ExecutionPanel({ content, language }) {
     setOutput(""); setError(""); setExecTime(null); setExitCode(null);
 
     try {
-      const { data } = await axios.post(`${API}/execute`, { code: content, language });
+      const { data } = await axios.post(`${EXEC_API}/execute`, { code: content, language });
       setOutput(data.output);
       setError(data.error);
       setExecTime(data.executionTime);

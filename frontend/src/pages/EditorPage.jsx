@@ -11,6 +11,8 @@ import FileTree from "../components/editor/FileTree";
 import ChatPanel from "../components/chat/ChatPanel";
 import VersionPanel from "../components/editor/VersionPanel";
 import ExecutionPanel from "../components/editor/ExecutionPanel";
+import AIAssistantPanel from "../components/editor/AIAssistantPanel";
+import TerminalPanel from "../components/editor/TerminalPanel";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
@@ -21,16 +23,18 @@ export default function EditorPage() {
   const { socket, connected } = useSocket();
 
   const [project, setProject] = useState(null);
-  const [rightPanel, setRightPanel] = useState("chat"); // chat | versions | run
+  const [rightPanel, setRightPanel] = useState("chat"); // chat | versions | run | ai | terminal
   const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth > 1024);
   const [rightOpen, setRightOpen] = useState(window.innerWidth > 1280);
   const [showInvite, setShowInvite] = useState(false);
   const [inviteUsername, setInviteUsername] = useState("");
   const [inviting, setInviting] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [myRole, setMyRole] = useState("viewer");
 
   const {
     files, activeFile, content, projectUsers, cursors,
+    ydoc, ytext, awareness,
     openFile, handleCodeChange, handleCursorMove, createFile, deleteFile
   } = useEditor(projectId, socket);
 
@@ -58,6 +62,16 @@ export default function EditorPage() {
       });
   }, [projectId]);
 
+  useEffect(() => {
+    if (!project || !user) return;
+    if (project.owner?._id === user._id) {
+      setMyRole("admin");
+      return;
+    }
+    const c = project.collaborators?.find((x) => x.user?._id === user._id);
+    setMyRole(c?.role || (project.isPublic ? "viewer" : "viewer"));
+  }, [project, user]);
+
   const handleInvite = async (e) => {
     e.preventDefault();
     if (!inviteUsername.trim()) return;
@@ -79,7 +93,9 @@ export default function EditorPage() {
   const RIGHT_TABS = [
     { id: "chat", label: "Chat", icon: "💬" },
     { id: "versions", label: "History", icon: "🔖" },
-    { id: "run", label: "Run", icon: "▶" }
+    { id: "run", label: "Run", icon: "▶" },
+    { id: "ai", label: "AI", icon: "✦" },
+    { id: "terminal", label: "Term", icon: "⌘" }
   ];
 
   return (
@@ -292,6 +308,10 @@ export default function EditorPage() {
               onChange={handleCodeChange}
               onCursorChange={handleCursorMove}
               cursors={cursors}
+              ydoc={ydoc}
+              ytext={ytext}
+              awareness={awareness}
+              readOnly={myRole === "viewer"}
             />
           </div>
 
@@ -375,6 +395,16 @@ export default function EditorPage() {
                 )}
                 {rightPanel === "run" && (
                   <ExecutionPanel content={content} language={activeFile?.language || "javascript"} />
+                )}
+                {rightPanel === "ai" && (
+                  <AIAssistantPanel
+                    content={content}
+                    language={activeFile?.language || "javascript"}
+                    readOnly={myRole === "viewer"}
+                  />
+                )}
+                {rightPanel === "terminal" && (
+                  <TerminalPanel projectId={projectId} />
                 )}
               </div>
             </motion.aside>

@@ -1,16 +1,33 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import axios from "axios";
+import { useAuth } from "../context/AuthContext";
+import { useYjsFile } from "./useYjsFile";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
 export function useEditor(projectId, socket) {
+  const { token } = useAuth();
   const [files, setFiles] = useState([]);
   const [activeFile, setActiveFile] = useState(null);
-  const [content, setContent] = useState("");
   const [saving, setSaving] = useState(false);
   const [projectUsers, setProjectUsers] = useState([]);
-  const [cursors, setCursors] = useState({});
+  const [cursors, setCursors] = useState({}); // legacy socket cursors (kept for chat/presence phase)
   const saveTimerRef = useRef(null);
+
+  const { ydoc, awareness, ytext, status: yStatus } = useYjsFile({
+    fileId: activeFile?._id,
+    token,
+    enabled: Boolean(activeFile?._id),
+  });
+
+  const [content, setContent] = useState("");
+  useEffect(() => {
+    if (!ytext) return;
+    const update = () => setContent(ytext.toString());
+    update();
+    ytext.observe(update);
+    return () => ytext.unobserve(update);
+  }, [ytext]);
 
   // Load files
   const loadFiles = useCallback(async () => {
@@ -40,78 +57,37 @@ export function useEditor(projectId, socket) {
       setCursors(prev => { const n = { ...prev }; delete n[socketId]; return n; });
     });
 
-    socket.on("code_change", ({ fileId, content: newContent, sender }) => {
-      if (activeFile?._id === fileId) setContent(newContent);
-    });
-
-    socket.on("file_content", ({ fileId, content: fc }) => {
-      if (activeFile?._id === fileId) setContent(fc);
-    });
-
-    socket.on("cursor_update", (cursorData) => {
-      if (cursorData.fileId === activeFile?._id) {
-        setCursors(prev => ({ ...prev, [cursorData.socketId]: cursorData }));
-      }
-    });
-
-    socket.on("cursor_remove", ({ socketId }) => {
-      setCursors(prev => { const n = { ...prev }; delete n[socketId]; return n; });
-    });
+    // CRDT: code sync is handled by Yjs provider (services/ws).
 
     return () => {
       socket.off("project_users");
       socket.off("user_joined_project");
       socket.off("user_left_project");
-      socket.off("code_change");
-      socket.off("file_content");
-      socket.off("cursor_update");
-      socket.off("cursor_remove");
       socket.emit("leave_project", { projectId });
     };
   }, [socket, projectId, activeFile]);
 
   const openFile = useCallback((file) => {
     setActiveFile(file);
-    setContent(file.content || "");
     setCursors({});
-    if (socket) socket.emit("open_file", { fileId: file._id, projectId });
   }, [socket, projectId]);
 
-  const handleCodeChange = useCallback((newContent) => {
-    setContent(newContent);
-
-    // Broadcast change
-    if (socket && activeFile) {
-      socket.emit("code_change", {
-        fileId: activeFile._id,
-        projectId,
-        content: newContent,
-        version: Date.now()
-      });
-    }
-
-    // Debounced save
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(async () => {
-      if (!activeFile) return;
-      setSaving(true);
-      try {
-        await axios.put(`${API}/files/${activeFile._id}`, { content: newContent });
-      } catch (e) { console.error("Save error:", e); }
-      finally { setSaving(false); }
-    }, 2000);
-  }, [socket, activeFile, projectId]);
+  const handleCodeChange = useCallback((_newContent) => {
+    // Monaco changes are bound to Yjs via y-monaco (in CollabEditor).
+    // `content` state is derived from Y.Text and used for panels (Run/History/etc).
+  }, []);
 
   const handleCursorMove = useCallback((position) => {
-    if (socket && activeFile) {
-      socket.emit("cursor_move", {
-        projectId,
+    // CRDT: cursor tracking migrates to Yjs awareness in the editor component.
+    if (awareness && position && activeFile?._id) {
+      const localState = awareness.getLocalState() || {};
+      awareness.setLocalStateField("cursor", {
         fileId: activeFile._id,
         line: position.lineNumber,
-        column: position.column
+        column: position.column,
       });
     }
-  }, [socket, activeFile, projectId]);
+  }, [awareness, activeFile]);
 
   const createFile = useCallback(async (name, language) => {
     const ext = name.split(".").pop();
@@ -139,6 +115,7 @@ export function useEditor(projectId, socket) {
 
   return {
     files, activeFile, content, saving, projectUsers, cursors,
+    ydoc, ytext, awareness, yStatus,
     openFile, handleCodeChange, handleCursorMove, createFile, deleteFile, loadFiles
   };
 }
