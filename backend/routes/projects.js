@@ -23,6 +23,7 @@ router.get("/", async (req, res) => {
 
     res.json(projects);
   } catch (err) {
+    console.error("🔥 Error creating project:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -31,6 +32,10 @@ router.get("/", async (req, res) => {
 router.post("/", async (req, res) => {
   try {
     const { name, description, language, isPublic } = req.body;
+    
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized: User not found" });
+    }
 
     const project = await Project.create({
       name,
@@ -57,6 +62,7 @@ router.post("/", async (req, res) => {
 
     res.status(201).json(populated);
   } catch (err) {
+    console.error("🚀 Error in POST /api/projects:", err);
     res.status(500).json({ error: err.message });
   }
 });

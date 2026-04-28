@@ -42,6 +42,13 @@ const userSchema = new mongoose.Schema({
     last4: { type: String, default: "" },
     createdAt: { type: Date }
   },
+  aiKeys: [{
+    keyType: { type: String, default: "openai" },
+    encryptedApiKey: { type: String },
+    last4: { type: String },
+    label: { type: String },
+    createdAt: { type: Date, default: Date.now }
+  }],
   github: {
     encryptedAccessToken: { type: String, default: "" },
     keyVersion: { type: Number, default: 1 },

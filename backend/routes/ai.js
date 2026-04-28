@@ -11,32 +11,70 @@ function maskLast4(key) {
   return key.slice(-4);
 }
 
-// PUT /api/ai/key — store/update user's OpenAI API key (BYOK)
-router.put("/key", async (req, res) => {
+/**
+ * Helper to get a random working key from the user's pool
+ */
+function getRandomKey(user) {
+  const pool = user.aiKeys || [];
+  // Fallback to legacy single key if pool is empty
+  if (pool.length === 0) {
+    return user.openai?.encryptedApiKey ? decryptString(user.openai.encryptedApiKey) : null;
+  }
+  const randomEntry = pool[Math.floor(Math.random() * pool.length)];
+  return decryptString(randomEntry.encryptedApiKey);
+}
+
+// GET /api/ai/keys — list all keys (masked)
+router.get("/keys", async (req, res) => {
   try {
-    const { apiKey } = req.body;
-    if (!apiKey || typeof apiKey !== "string" || apiKey.length < 20) {
-      return res.status(400).json({ error: "Invalid API key" });
-    }
-
-    req.user.openai = {
-      encryptedApiKey: encryptString(apiKey),
-      keyVersion: 1,
-      last4: maskLast4(apiKey),
-      createdAt: new Date()
-    };
-    await req.user.save();
-
-    res.json({ ok: true, last4: req.user.openai.last4 });
+    const keys = (req.user.aiKeys || []).map(k => ({
+      _id: k._id,
+      last4: k.last4,
+      label: k.label,
+      createdAt: k.createdAt
+    }));
+    res.json({ keys });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-// DELETE /api/ai/key — remove user's key
-router.delete("/key", async (req, res) => {
+// POST /api/ai/keys — add a new key to the pool
+router.post("/keys", async (req, res) => {
   try {
-    req.user.openai = { encryptedApiKey: "", keyVersion: 1, last4: "", createdAt: null };
+    const { apiKey, label } = req.body;
+    if (!apiKey || typeof apiKey !== "string" || apiKey.length < 20) {
+      return res.status(400).json({ error: "Invalid API key" });
+    }
+
+    const newKey = {
+      encryptedApiKey: encryptString(apiKey),
+      last4: maskLast4(apiKey),
+      label: label || `Key ${maskLast4(apiKey)}`,
+      createdAt: new Date()
+    };
+
+    if (!req.user.aiKeys) req.user.aiKeys = [];
+    req.user.aiKeys.push(newKey);
+    
+    // Also update legacy field for backward compatibility
+    req.user.openai = {
+      encryptedApiKey: newKey.encryptedApiKey,
+      last4: newKey.last4,
+      createdAt: newKey.createdAt
+    };
+
+    await req.user.save();
+    res.json({ ok: true, key: req.user.aiKeys[req.user.aiKeys.length - 1] });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// DELETE /api/ai/keys/:id — remove a key from the pool
+router.delete("/keys/:id", async (req, res) => {
+  try {
+    req.user.aiKeys = req.user.aiKeys.filter(k => k._id.toString() !== req.params.id);
     await req.user.save();
     res.json({ ok: true });
   } catch (e) {
@@ -44,16 +82,14 @@ router.delete("/key", async (req, res) => {
   }
 });
 
-// POST /api/ai/chat — basic assistant chat
+// POST /api/ai/chat — basic assistant chat using rotation
 router.post("/chat", async (req, res) => {
   try {
     const { messages, model } = req.body;
-    const encKey = req.user.openai?.encryptedApiKey;
-    if (!encKey) return res.status(400).json({ error: "OpenAI API key not set" });
+    const apiKey = getRandomKey(req.user);
+    if (!apiKey) return res.status(400).json({ error: "No AI API keys configured" });
 
-    const apiKey = decryptString(encKey);
     const client = new OpenAI({ apiKey });
-
     const completion = await client.chat.completions.create({
       model: model || "gpt-4o-mini",
       messages: Array.isArray(messages) ? messages : [],
@@ -67,16 +103,14 @@ router.post("/chat", async (req, res) => {
   }
 });
 
-// POST /api/ai/suggest — inline code suggestions
+// POST /api/ai/suggest — inline code suggestions using rotation
 router.post("/suggest", async (req, res) => {
   try {
     const { code, language, fileName } = req.body;
-    const encKey = req.user.openai?.encryptedApiKey;
-    if (!encKey) return res.status(400).json({ error: "OpenAI API key not set" });
+    const apiKey = getRandomKey(req.user);
+    if (!apiKey) return res.status(400).json({ error: "No AI API keys configured" });
 
-    const apiKey = decryptString(encKey);
     const client = new OpenAI({ apiKey });
-
     const completion = await client.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -101,4 +135,3 @@ router.post("/suggest", async (req, res) => {
 });
 
 module.exports = router;
-

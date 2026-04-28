@@ -40,7 +40,8 @@ const projectSchema = new mongoose.Schema({
   }
 }, { timestamps: true });
 
-// Index for search
-projectSchema.index({ name: "text", description: "text" });
+// Index for search - We use language_override: "none" because we have a field named "language"
+// that contains programming languages, which MongoDB text search doesn't support as natural languages.
+projectSchema.index({ name: "text", description: "text" }, { language_override: "none" });
 
 module.exports = mongoose.model("Project", projectSchema);

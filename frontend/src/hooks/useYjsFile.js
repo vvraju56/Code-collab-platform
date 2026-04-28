@@ -6,27 +6,29 @@ const YJS_URL = import.meta.env.VITE_WS_SERVER_URL || "ws://localhost:1234";
 
 export function useYjsFile({ fileId, token, enabled }) {
   const [status, setStatus] = useState("disconnected");
-  const ydocRef = useRef(null);
+  const [ydoc, setYdoc] = useState(null);
   const providerRef = useRef(null);
   const [awareness, setAwareness] = useState(null);
 
   const ytext = useMemo(() => {
-    if (!ydocRef.current) return null;
-    return ydocRef.current.getText("monaco");
-  }, [fileId]);
+    if (!ydoc) return null;
+    return ydoc.getText("monaco");
+  }, [ydoc]);
 
   useEffect(() => {
-    if (!enabled || !fileId || !token) return;
+    if (!enabled || !fileId || !token) {
+      setYdoc(null);
+      return;
+    }
 
-    const ydoc = new Y.Doc();
-    ydocRef.current = ydoc;
+    const newYdoc = new Y.Doc();
+    setYdoc(newYdoc);
 
-    const room = `file:${fileId}`;
+    const room = `file:${fileId}?token=${token}`;
     const provider = new WebsocketProvider(
       YJS_URL,
       room,
-      ydoc,
-      { params: { token } },
+      newYdoc
     );
     providerRef.current = provider;
     setAwareness(provider.awareness);
@@ -37,15 +39,15 @@ export function useYjsFile({ fileId, token, enabled }) {
     return () => {
       provider.off("status", onStatus);
       provider.destroy();
-      ydoc.destroy();
+      newYdoc.destroy();
       providerRef.current = null;
-      ydocRef.current = null;
+      setYdoc(null);
       setAwareness(null);
     };
   }, [enabled, fileId, token]);
 
   return {
-    ydoc: ydocRef.current,
+    ydoc,
     provider: providerRef.current,
     awareness,
     ytext,

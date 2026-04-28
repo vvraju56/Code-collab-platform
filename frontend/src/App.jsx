@@ -26,9 +26,7 @@ export default function App() {
     <AuthProvider>
       <SocketProvider>
         <Toaster position="top-center" reverseOrder={false} />
-        <BrowserRouter>
-...
-
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <Routes>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/auth" element={<PublicRoute><AuthPage /></PublicRoute>} />

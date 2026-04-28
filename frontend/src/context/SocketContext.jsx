@@ -21,29 +21,37 @@ export function SocketProvider({ children }) {
       return;
     }
 
-    socketRef.current = io(SOCKET_URL, {
+    const socketInstance = io(SOCKET_URL, {
       auth: { token },
-      transports: ["websocket"],
+      // Removed restricted transports to allow polling fallback
       reconnection: true,
       reconnectionAttempts: 5,
-      reconnectionDelay: 1000
+      reconnectionDelay: 1000,
+      autoConnect: true,
+      timeout: 10000
     });
 
-    const s = socketRef.current;
+    socketRef.current = socketInstance;
 
-    s.on("connect", () => {
+    socketInstance.on("connect", () => {
       setConnected(true);
-      console.log("✅ Socket connected:", s.id);
+      console.log("✅ Socket connected:", socketInstance.id);
     });
 
-    s.on("disconnect", () => {
+    socketInstance.on("disconnect", (reason) => {
       setConnected(false);
+      if (reason === "io client disconnect") {
+        // intentionally disconnected
+      }
     });
 
-    s.on("global_user_count", (count) => setGlobalCount(count));
+    socketInstance.on("global_user_count", (count) => setGlobalCount(count));
 
     return () => {
-      s.disconnect();
+      if (socketInstance) {
+        socketInstance.removeAllListeners();
+        socketInstance.disconnect();
+      }
       socketRef.current = null;
       setConnected(false);
     };

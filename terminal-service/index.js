@@ -59,7 +59,7 @@ wss.on('connection', (ws, req) => {
   });
 });
 
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.TERMINAL_PORT || process.env.PORT || 4000;
 server.listen(PORT, () => {
   console.log(`Terminal service listening on port ${PORT}`);
 });

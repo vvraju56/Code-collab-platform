@@ -59,12 +59,13 @@ export default function AIAssistantPanel({ activeFile, content }) {
         <p className="text-slate-400 text-sm mb-6">
           Please set your OpenAI API key in the settings to use the AI assistant.
         </p>
-        <button 
-          onClick={() => window.open("/dashboard", "_blank")}
+        <button
+          onClick={() => window.open("/dashboard?tab=settings", "_blank")}
           className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-xl"
         >
           Go to Settings
         </button>
+
       </div>
     );
   }

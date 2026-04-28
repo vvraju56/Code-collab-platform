@@ -66,17 +66,6 @@ export default function CollabEditor({
     monaco.editor.defineTheme("codebloc-dark", MONACO_THEME);
     monaco.editor.setTheme("codebloc-dark");
 
-    if (ytext && awareness) {
-      const model = editor.getModel();
-      yBindingRef.current?.destroy?.();
-      yBindingRef.current = new MonacoBinding(
-        ytext,
-        model,
-        new Set([editor]),
-        awareness,
-      );
-    }
-
     // AI Inline Suggestions Provider
     const suggestionsProvider = monaco.languages.registerInlineCompletionsProvider(
       { pattern: "**" },
@@ -243,7 +232,7 @@ export default function CollabEditor({
     decorationsRef.current = editor.deltaDecorations(decorationsRef.current, newDecorations);
   }, [cursors]);
 
-  const monacoLang = (file?.language || "plaintext") === "markdown" ? "markdown" : file?.language || "plaintext";
+  const monacoLang = file?.language || "javascript";
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -255,7 +244,19 @@ export default function CollabEditor({
     // When switching files, rebind if editor already mounted.
     const editor = editorRef.current;
     if (!editor || !ytext || !awareness) return;
+    
     const model = editor.getModel();
+    if (!model) return;
+
+    // Safely update language if it differs
+    try {
+      if (model.getLanguageId() !== monacoLang) {
+        monacoRef.current?.editor.setModelLanguage(model, monacoLang);
+      }
+    } catch (e) {
+      console.warn("Monaco language sync failed:", e);
+    }
+
     yBindingRef.current?.destroy?.();
     yBindingRef.current = new MonacoBinding(
       ytext,
@@ -264,7 +265,7 @@ export default function CollabEditor({
       awareness,
     );
     return () => yBindingRef.current?.destroy?.();
-  }, [file?._id, ytext, awareness]);
+  }, [file?._id, ytext, awareness, monacoLang]);
 
   return (
     <div className="h-full w-full relative">
@@ -313,7 +314,7 @@ export default function CollabEditor({
       `).join("")}
       `}</style>
 
-      {file ? (
+      {file && ytext && awareness ? (
         <Editor
           height="100%"
           language={monacoLang}
@@ -350,8 +351,12 @@ export default function CollabEditor({
       ) : (
         <div className="h-full flex flex-col items-center justify-center text-slate-600">
           <div className="text-6xl mb-4">📂</div>
-          <p className="text-lg font-black tracking-tight">Select a file to start editing</p>
-          <p className="text-sm mt-2">or create a new one from the explorer</p>
+          <p className="text-lg font-black tracking-tight">
+            {!file ? "Select a file to start editing" : "Initializing editor..."}
+          </p>
+          <p className="text-sm mt-2">
+            {!file ? "or create a new one from the explorer" : "Establishing real-time connection..."}
+          </p>
         </div>
       )}
     </div>

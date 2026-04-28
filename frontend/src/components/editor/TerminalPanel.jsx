@@ -30,7 +30,17 @@ export default function TerminalPanel({ projectId }) {
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.open(terminalRef.current);
-    fitAddon.fit();
+    
+    // Small delay to ensure DOM is rendered before fitting
+    setTimeout(() => {
+      if (fitAddonRef.current && terminalRef.current) {
+        try {
+          fitAddonRef.current.fit();
+        } catch (e) {
+          console.warn("Terminal fit failed:", e);
+        }
+      }
+    }, 100);
 
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
@@ -41,12 +51,19 @@ export default function TerminalPanel({ projectId }) {
 
     socket.onopen = () => {
       term.writeln('Connected to shared terminal session...');
+      // Fit again after connection
+      setTimeout(() => fitAddon.fit(), 200);
     };
 
     socket.onmessage = (event) => {
-      const { type, data } = JSON.parse(event.data);
-      if (type === 'output') {
-        term.write(data);
+      try {
+        const { type, data } = JSON.parse(event.data);
+        if (type === 'output') {
+          term.write(data);
+        }
+      } catch (e) {
+        // Fallback for non-JSON messages if any
+        term.write(event.data);
       }
     };
 
@@ -57,13 +74,19 @@ export default function TerminalPanel({ projectId }) {
     });
 
     const handleResize = () => {
-      fitAddon.fit();
-      if (socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ 
-          type: 'resize', 
-          cols: term.cols, 
-          rows: term.rows 
-        }));
+      if (fitAddonRef.current) {
+        try {
+          fitAddonRef.current.fit();
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ 
+              type: 'resize', 
+              cols: term.cols, 
+              rows: term.rows 
+            }));
+          }
+        } catch (e) {
+          console.warn("Resize fit failed:", e);
+        }
       }
     };
 
