@@ -57,12 +57,18 @@ export function useEditor(projectId, socket) {
       setCursors(prev => { const n = { ...prev }; delete n[socketId]; return n; });
     });
 
-    // CRDT: code sync is handled by Yjs provider (services/ws).
+    socket.on("file_created", (newFile) => {
+      setFiles(prev => {
+        if (prev.find(f => f._id === newFile._id)) return prev;
+        return [...prev, newFile];
+      });
+    });
 
     return () => {
       socket.off("project_users");
       socket.off("user_joined_project");
       socket.off("user_left_project");
+      socket.off("file_created");
       socket.emit("leave_project", { projectId });
     };
   }, [socket, projectId, activeFile]);

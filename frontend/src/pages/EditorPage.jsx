@@ -401,6 +401,8 @@ export default function EditorPage() {
                 )}
                 {rightPanel === "ai" && (
                   <AIAssistantPanel
+                    projectId={projectId}
+                    activeFile={activeFile}
                     content={content}
                     language={activeFile?.language || "javascript"}
                     readOnly={myRole === "viewer"}

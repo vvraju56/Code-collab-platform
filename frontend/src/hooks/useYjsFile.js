@@ -25,6 +25,8 @@ export function useYjsFile({ fileId, token, enabled }) {
     setYdoc(newYdoc);
 
     const room = `file:${fileId}?token=${token}`;
+    console.log(`[YJS] Connecting to room: ${room} at ${YJS_URL}`);
+    
     const provider = new WebsocketProvider(
       YJS_URL,
       room,
@@ -33,7 +35,10 @@ export function useYjsFile({ fileId, token, enabled }) {
     providerRef.current = provider;
     setAwareness(provider.awareness);
 
-    const onStatus = (e) => setStatus(e.status);
+    const onStatus = (e) => {
+      console.log(`[YJS] Status changed: ${e.status}`);
+      setStatus(e.status);
+    };
     provider.on("status", onStatus);
 
     return () => {

@@ -1,7 +1,11 @@
 const express = require("express");
 const OpenAI = require("openai");
+const Groq = require("groq-sdk");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 const { authMiddleware } = require("../middleware/auth");
 const { encryptString, decryptString } = require("../utils/crypto");
+const Project = require("../models/Project");
+const File = require("../models/File");
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -11,127 +15,178 @@ function maskLast4(key) {
   return key.slice(-4);
 }
 
-/**
- * Helper to get a random working key from the user's pool
- */
-function getRandomKey(user) {
-  const pool = user.aiKeys || [];
-  // Fallback to legacy single key if pool is empty
-  if (pool.length === 0) {
-    return user.openai?.encryptedApiKey ? decryptString(user.openai.encryptedApiKey) : null;
-  }
-  const randomEntry = pool[Math.floor(Math.random() * pool.length)];
-  return decryptString(randomEntry.encryptedApiKey);
+function getProvider(key) {
+  if (key.startsWith("gsk_")) return "groq";
+  if (key.startsWith("AIza")) return "gemini";
+  return "openai";
 }
 
-// GET /api/ai/keys — list all keys (masked)
+function getAllKeyEntries(user) {
+  const pool = user.aiKeys || [];
+  let entries = pool.map(entry => {
+    const dec = decryptString(entry.encryptedApiKey);
+    return { id: entry._id, key: dec, provider: getProvider(dec) };
+  });
+  if (user.openai?.encryptedApiKey) {
+    const legacyDec = decryptString(user.openai.encryptedApiKey);
+    if (!entries.some(e => e.key === legacyDec)) {
+      entries.push({ id: "legacy", key: legacyDec, provider: getProvider(legacyDec) });
+    }
+  }
+  return entries.sort(() => Math.random() - 0.5);
+}
+
+const SYSTEM_PROMPT = `You are a Senior Full-Stack Engineer and AI Build Agent. 
+If the user asks you to create a component, file, or build a feature, you MUST provide the code AND a special build command.
+
+Format for building files:
+[BUILD_FILE:path/to/file.js]
+\`\`\`javascript
+// code here
+\`\`\`
+
+Example: "Build a navbar"
+Response: "I'll build that for you. [BUILD_FILE:src/components/Navbar.jsx] \`\`\`javascript ... \`\`\`"
+
+Always provide COMPLETE, working code. NEVER truncate code or use comments like "// ... rest of code".
+If you are modifying an existing file, you MUST provide the ENTIRE file content with your changes integrated.`;
+
+async function tryChat(entry, messages, model) {
+  if (entry.provider === "gemini") {
+    const genAI = new GoogleGenerativeAI(entry.key);
+    const geminiModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    
+    // Convert messages to Gemini format
+    const history = messages.slice(0, -1).map(m => ({
+      role: m.role === "user" ? "user" : "model",
+      parts: [{ text: m.content }]
+    }));
+    
+    const chat = geminiModel.startChat({
+      history: history,
+      systemInstruction: SYSTEM_PROMPT
+    });
+    
+    const lastMsg = messages[messages.length - 1].content;
+    const result = await chat.sendMessage(lastMsg);
+    return result.response.text();
+  } else if (entry.provider === "groq") {
+    const groq = new Groq({ apiKey: entry.key });
+    const completion = await groq.chat.completions.create({
+      model: model || "llama-3.3-70b-versatile",
+      messages: [{ role: "system", content: SYSTEM_PROMPT }, ...messages],
+      max_tokens: 8192,
+      temperature: 0.2
+    });
+    return completion.choices[0]?.message?.content || "";
+  } else {
+    const openai = new OpenAI({ apiKey: entry.key });
+    const completion = await openai.chat.completions.create({
+      model: model || "gpt-4o-mini",
+      messages: [{ role: "system", content: SYSTEM_PROMPT }, ...messages],
+      max_tokens: 16384,
+      temperature: 0.2
+    });
+    return completion.choices[0]?.message?.content || "";
+  }
+}
+
+// GET /api/ai/keys
 router.get("/keys", async (req, res) => {
   try {
     const keys = (req.user.aiKeys || []).map(k => ({
       _id: k._id,
       last4: k.last4,
       label: k.label,
+      provider: getProvider(decryptString(k.encryptedApiKey)),
       createdAt: k.createdAt
     }));
     res.json({ keys });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/ai/keys — add a new key to the pool
+// POST /api/ai/keys
 router.post("/keys", async (req, res) => {
   try {
     const { apiKey, label } = req.body;
-    if (!apiKey || typeof apiKey !== "string" || apiKey.length < 20) {
-      return res.status(400).json({ error: "Invalid API key" });
-    }
-
+    if (!apiKey) return res.status(400).json({ error: "Invalid key" });
+    const provider = getProvider(apiKey);
     const newKey = {
       encryptedApiKey: encryptString(apiKey),
       last4: maskLast4(apiKey),
-      label: label || `Key ${maskLast4(apiKey)}`,
+      label: label || `${provider.toUpperCase()} Key`,
       createdAt: new Date()
     };
-
     if (!req.user.aiKeys) req.user.aiKeys = [];
     req.user.aiKeys.push(newKey);
-    
-    // Also update legacy field for backward compatibility
-    req.user.openai = {
-      encryptedApiKey: newKey.encryptedApiKey,
-      last4: newKey.last4,
-      createdAt: newKey.createdAt
-    };
-
-    await req.user.save();
-    res.json({ ok: true, key: req.user.aiKeys[req.user.aiKeys.length - 1] });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// DELETE /api/ai/keys/:id — remove a key from the pool
-router.delete("/keys/:id", async (req, res) => {
-  try {
-    req.user.aiKeys = req.user.aiKeys.filter(k => k._id.toString() !== req.params.id);
+    req.user.openai = newKey;
     await req.user.save();
     res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/ai/chat — basic assistant chat using rotation
 router.post("/chat", async (req, res) => {
-  try {
-    const { messages, model } = req.body;
-    const apiKey = getRandomKey(req.user);
-    if (!apiKey) return res.status(400).json({ error: "No AI API keys configured" });
-
-    const client = new OpenAI({ apiKey });
-    const completion = await client.chat.completions.create({
-      model: model || "gpt-4o-mini",
-      messages: Array.isArray(messages) ? messages : [],
-      temperature: 0.2
-    });
-
-    const text = completion.choices?.[0]?.message?.content || "";
-    res.json({ ok: true, text });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
+  const entries = getAllKeyEntries(req.user);
+  if (entries.length === 0) return res.status(400).json({ error: "No AI keys" });
+  let lastError = null;
+  for (const entry of entries) {
+    try {
+      const text = await tryChat(entry, req.body.messages, req.body.model);
+      return res.json({ ok: true, text });
+    } catch (e) {
+      lastError = e;
+      if (e.status === 429 || e.status === 401) continue;
+    }
   }
+  res.status(500).json({ error: lastError?.message || "AI failed" });
 });
 
-// POST /api/ai/suggest — inline code suggestions using rotation
-router.post("/suggest", async (req, res) => {
+// BUILD ACTION ENDPOINT
+router.post("/action", async (req, res) => {
   try {
-    const { code, language, fileName } = req.body;
-    const apiKey = getRandomKey(req.user);
-    if (!apiKey) return res.status(400).json({ error: "No AI API keys configured" });
+    const { projectId, action, path, content } = req.body;
+    console.log(`[AI ACTION] Received action: ${action}, path: ${path}, projectId: ${projectId}`);
+    console.log(`[AI ACTION] Content length: ${content?.length}`);
 
-    const client = new OpenAI({ apiKey });
-    const completion = await client.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: `You are an expert AI pair programmer. Complete the following ${language} code for file "${fileName}". Provide ONLY the suggested code completion without markdown blocks or explanations.`
-        },
-        {
-          role: "user",
-          content: code
-        }
-      ],
-      max_tokens: 100,
-      temperature: 0
-    });
+    if (action === "build_file") {
+      const normalizedPath = path.trim().startsWith("/") ? path.trim() : "/" + path.trim();
+      let file = await File.findOne({ project: projectId, path: normalizedPath });
+      
+      const fileName = normalizedPath.split("/").pop();
+      const parentPath = normalizedPath.split("/").slice(0, -1).join("/") || "/";
+      const ext = fileName.split(".").pop();
+      const langMap = { js: "javascript", jsx: "javascript", ts: "typescript", tsx: "typescript", py: "python", md: "markdown", html: "html", css: "css" };
+      const language = langMap[ext] || "javascript";
 
-    const suggestion = completion.choices?.[0]?.message?.content || "";
-    res.json({ ok: true, suggestion });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+      if (file) {
+        console.log(`[AI ACTION] Updating existing file: ${file._id}`);
+        file.content = content;
+        file.lastEditedBy = req.user._id;
+        file.lastEditedAt = new Date();
+        await file.save();
+      } else {
+        console.log(`[AI ACTION] Creating new file: ${normalizedPath}`);
+        file = await File.create({
+          name: fileName,
+          path: normalizedPath,
+          parentPath,
+          content,
+          language,
+          project: projectId,
+          lastEditedBy: req.user._id
+        });
+        await Project.findByIdAndUpdate(projectId, { $push: { files: file._id } });
+        console.log(`[AI ACTION] Created file: ${file._id}`);
+      }
+
+      // Notify collaborators via socket
+      const { io } = require("../index");
+      if (io) io.to(projectId).emit("file_created", file);
+
+      return res.json({ ok: true, file });
+    }
+    res.status(400).json({ error: "Unknown action" });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 module.exports = router;

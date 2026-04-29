@@ -10,6 +10,7 @@ export default function TerminalPanel({ projectId }) {
   const xtermRef = useRef(null);
   const socketRef = useRef(null);
   const fitAddonRef = useRef(null);
+  const reconnectTimeoutRef = useRef(null);
 
   useEffect(() => {
     if (!terminalRef.current) return;
@@ -31,45 +32,51 @@ export default function TerminalPanel({ projectId }) {
     term.loadAddon(fitAddon);
     term.open(terminalRef.current);
     
-    // Small delay to ensure DOM is rendered before fitting
-    setTimeout(() => {
-      if (fitAddonRef.current && terminalRef.current) {
-        try {
-          fitAddonRef.current.fit();
-        } catch (e) {
-          console.warn("Terminal fit failed:", e);
-        }
-      }
-    }, 100);
-
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    // Connect to terminal websocket
-    const socket = new WebSocket(`${TERMINAL_WS_URL}?projectId=${projectId}`);
-    socketRef.current = socket;
-
-    socket.onopen = () => {
-      term.writeln('Connected to shared terminal session...');
-      // Fit again after connection
-      setTimeout(() => fitAddon.fit(), 200);
-    };
-
-    socket.onmessage = (event) => {
-      try {
-        const { type, data } = JSON.parse(event.data);
-        if (type === 'output') {
-          term.write(data);
-        }
-      } catch (e) {
-        // Fallback for non-JSON messages if any
-        term.write(event.data);
+    function connect() {
+      if (socketRef.current) {
+        socketRef.current.close();
       }
-    };
+
+      const socket = new WebSocket(`${TERMINAL_WS_URL}?projectId=${projectId}`);
+      socketRef.current = socket;
+
+      socket.onopen = () => {
+        term.writeln('Connected to shared terminal session...');
+        // Fit after connection
+        setTimeout(() => {
+          if (fitAddonRef.current) fitAddonRef.current.fit();
+        }, 100);
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const { type, data } = JSON.parse(event.data);
+          if (type === 'output') {
+            term.write(data);
+          }
+        } catch (e) {
+          term.write(event.data);
+        }
+      };
+
+      socket.onclose = () => {
+        term.writeln('\r\nConnection closed. Retrying in 5s...');
+        reconnectTimeoutRef.current = setTimeout(connect, 5000);
+      };
+
+      socket.onerror = (err) => {
+        console.error('Terminal WebSocket error:', err);
+      };
+    }
+
+    connect();
 
     term.onData((data) => {
-      if (socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: 'input', data }));
+      if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+        socketRef.current.send(JSON.stringify({ type: 'input', data }));
       }
     });
 
@@ -77,25 +84,40 @@ export default function TerminalPanel({ projectId }) {
       if (fitAddonRef.current) {
         try {
           fitAddonRef.current.fit();
-          if (socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({ 
+          if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+            socketRef.current.send(JSON.stringify({ 
               type: 'resize', 
               cols: term.cols, 
               rows: term.rows 
             }));
           }
         } catch (e) {
-          console.warn("Resize fit failed:", e);
+          // ignore fit errors
         }
       }
     };
 
+    // Window resize event
     window.addEventListener('resize', handleResize);
 
+    // ResizeObserver for layout changes (e.g. sidebars)
+    const resizeObserver = new ResizeObserver(() => {
+      handleResize();
+    });
+    
+    if (terminalRef.current) {
+      resizeObserver.observe(terminalRef.current);
+    }
+
     return () => {
-      socket.close();
+      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      if (socketRef.current) {
+        socketRef.current.onclose = null; // Prevent reconnection on cleanup
+        socketRef.current.close();
+      }
       term.dispose();
       window.removeEventListener('resize', handleResize);
+      resizeObserver.disconnect();
     };
   }, [projectId]);
 

@@ -235,8 +235,24 @@ export default function DashboardPage() {
                       {aiKeys.map(k => (
                         <div key={k._id} className="flex items-center justify-between p-4 bg-slate-950/40 border border-slate-800 rounded-2xl hover:border-slate-700 transition">
                           <div className="flex items-center gap-3">
-                            <div className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" />
-                            <div><p className="text-sm font-bold text-white leading-none mb-1">{k.label || "Untitled Key"}</p><p className="text-[10px] font-mono text-slate-500">•••• {k.last4}</p></div>
+                            <div className={`w-1.5 h-1.5 rounded-full shadow-[0_0_8px] ${
+                              k.provider === "groq" ? "bg-orange-500 shadow-orange-500/60" : 
+                              k.provider === "gemini" ? "bg-blue-500 shadow-blue-500/60" :
+                              "bg-green-500 shadow-green-500/60"
+                            }`} />
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm font-bold text-white leading-none">{k.label || "Untitled Key"}</p>
+                                <span className={`text-[8px] font-black px-1.5 py-0.5 rounded border uppercase ${
+                                  k.provider === "groq" ? "bg-orange-500/10 border-orange-500/20 text-orange-500" : 
+                                  k.provider === "gemini" ? "bg-blue-500/10 border-blue-500/20 text-blue-500" :
+                                  "bg-green-500/10 border-green-500/20 text-green-500"
+                                }`}>
+                                  {k.provider}
+                                </span>
+                              </div>
+                              <p className="text-[10px] font-mono text-slate-500 mt-1">•••• {k.last4}</p>
+                            </div>
                           </div>
                           <button onClick={() => handleDeleteAIKey(k._id)} className="p-2 text-slate-600 hover:text-red-400 transition">🗑</button>
                         </div>
