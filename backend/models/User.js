@@ -54,7 +54,19 @@ const userSchema = new mongoose.Schema({
     keyVersion: { type: Number, default: 1 },
     username: { type: String, default: "" },
     createdAt: { type: Date }
-  }
+  },
+  friends: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+  friendRequests: [{
+    from: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    username: String,
+    status: { type: String, enum: ["pending", "accepted", "rejected"], default: "pending" },
+    createdAt: { type: Date, default: Date.now }
+  }],
+  sentFriendRequests: [{
+    to: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    status: { type: String, enum: ["pending", "accepted", "rejected"], default: "pending" },
+    createdAt: { type: Date, default: Date.now }
+  }]
 }, { timestamps: true });
 
 // Hash password before save

@@ -3,9 +3,22 @@ import axios from "axios";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 const EXEC_API = import.meta.env.VITE_EXEC_API_URL || "http://localhost:5001";
-const SUPPORTED = ["javascript", "python", "cpp"];
+const SUPPORTED = ["javascript", "typescript", "python", "cpp", "c", "java", "go", "rust", "ruby", "php"];
 
-export default function ExecutionPanel({ content, language }) {
+const LANGUAGE_LABELS = {
+  javascript: "JavaScript",
+  typescript: "TypeScript",
+  python: "Python",
+  cpp: "C++",
+  c: "C",
+  java: "Java",
+  go: "Go",
+  rust: "Rust",
+  ruby: "Ruby",
+  php: "PHP"
+};
+
+export default function ExecutionPanel({ content, language, activeFile }) {
   const [output, setOutput] = useState("");
   const [error, setError] = useState("");
   const [running, setRunning] = useState(false);
@@ -17,18 +30,44 @@ export default function ExecutionPanel({ content, language }) {
     setRunning(true);
     setOutput(""); setError(""); setExecTime(null); setExitCode(null);
 
+    // Skip JSX/React files - they need a build step
+    const isJSX = content.includes('import React') || content.includes('<div') || content.includes('<span') || content.includes('<button');
+    const isReactFile = activeFile?.name?.endsWith('.jsx') || activeFile?.name?.endsWith('.tsx');
+    
+    if (isJSX || isReactFile) {
+      setError("React/JSX files cannot be executed directly. Use the build system or create a simple JS file to test.");
+      setRunning(false);
+      return;
+    }
+
+    const url = `${EXEC_API}/execute`;
+
     try {
-      const { data } = await axios.post(`${EXEC_API}/execute`, { code: content, language });
-      setOutput(data.output);
-      setError(data.error);
-      setExecTime(data.executionTime);
-      setExitCode(data.exitCode);
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: content, language })
+      });
+      
+      if (!response.ok) {
+        const errData = await response.json();
+        setError(errData.error || `HTTP ${response.status}`);
+      } else {
+        const data = await response.json();
+        setOutput(data.output || "");
+        setError(data.error || "");
+        setExecTime(data.executionTime);
+        setExitCode(data.exitCode);
+      }
     } catch (err) {
-      setError(err.response?.data?.error || "Execution service unavailable");
-    } finally { setRunning(false); }
+      setError(err.message || "Execution service unavailable");
+    } finally { 
+      setRunning(false); 
+    }
   };
 
   const isSupported = SUPPORTED.includes(language);
+  const hasContent = content?.trim();
   const hasOutput = output || error;
 
   return (
@@ -47,7 +86,7 @@ export default function ExecutionPanel({ content, language }) {
       <div className="px-3 py-3 border-b border-slate-800">
         <button
           onClick={handleRun}
-          disabled={running || !isSupported || !content?.trim()}
+          disabled={running || !isSupported || !hasContent}
           className="w-full py-2.5 flex items-center justify-center gap-2 font-black text-xs uppercase tracking-widest rounded-xl transition disabled:opacity-40"
           style={{
             background: running ? "#1e3a8a" : "#16a34a",
@@ -61,7 +100,7 @@ export default function ExecutionPanel({ content, language }) {
               Executing...
             </>
           ) : (
-            <>▶ Run {language}</>
+            <>▶ Run {LANGUAGE_LABELS[language] || language}</>
           )}
         </button>
 

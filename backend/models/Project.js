@@ -22,10 +22,35 @@ const projectSchema = new mongoose.Schema({
     role: { type: String, enum: ["viewer", "editor", "admin"], default: "editor" },
     joinedAt: { type: Date, default: Date.now }
   }],
+  joinRequests: [{
+    user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    username: String,
+    status: { type: String, enum: ["pending", "accepted", "rejected"], default: "pending" },
+    requestedAt: { type: Date, default: Date.now }
+  }],
+  invitations: [{
+    email: String,
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    username: String,
+    role: { type: String, enum: ["viewer", "editor", "admin"], default: "editor" },
+    status: { type: String, enum: ["pending", "accepted", "rejected"], default: "pending" },
+    invitedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    invitedAt: { type: Date, default: Date.now }
+  }],
+  notifications: [{
+    type: { type: String, enum: ["invitation", "join_request", "invitation_accepted", "invitation_rejected"] },
+    message: String,
+    from: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    fromUsername: String,
+    projectId: { type: mongoose.Schema.Types.ObjectId, ref: "Project" },
+    projectName: String,
+    read: { type: Boolean, default: false },
+    createdAt: { type: Date, default: Date.now }
+  }],
   language: {
     type: String,
-    default: "javascript",
-    enum: ["javascript","typescript","python","java","cpp","c","go","rust","php","ruby","html","css","json","markdown","bash"]
+    default: "java",
+    enum: ["java", "python", "react", "c", "csharp", "javascript"]
   },
   isPublic: { type: Boolean, default: false },
   stars: { type: Number, default: 0 },

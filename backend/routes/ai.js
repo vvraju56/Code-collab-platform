@@ -142,6 +142,49 @@ router.post("/chat", async (req, res) => {
 });
 
 // BUILD ACTION ENDPOINT
+router.post("/suggest", async (req, res) => {
+  const entries = getAllKeyEntries(req.user);
+  if (entries.length === 0) return res.status(400).json({ error: "No AI keys" });
+
+  const { code, language, fileName } = req.body;
+  const prompt = `Complete this ${language} code. Respond ONLY with the completion, no explanation:
+${code}`;
+
+  let lastError = null;
+  for (const entry of entries) {
+    try {
+      if (entry.provider === "gemini") {
+        const genAI = new GoogleGenerativeAI(entry.key);
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const result = await model.generateContent(prompt);
+        return res.json({ ok: true, suggestion: result.response.text() });
+      } else if (entry.provider === "groq") {
+        const groq = new Groq({ apiKey: entry.key });
+        const completion = await groq.chat.completions.create({
+          model: "llama-3.3-70b-versatile",
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: 256,
+          temperature: 0.3
+        });
+        return res.json({ ok: true, suggestion: completion.choices[0]?.message?.content || "" });
+      } else {
+        const openai = new OpenAI({ apiKey: entry.key });
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: 256,
+          temperature: 0.3
+        });
+        return res.json({ ok: true, suggestion: completion.choices[0]?.message?.content || "" });
+      }
+    } catch (e) {
+      lastError = e;
+      if (e.status === 429 || e.status === 401) continue;
+    }
+  }
+  res.status(500).json({ error: lastError?.message || "AI failed" });
+});
+
 router.post("/action", async (req, res) => {
   try {
     const { projectId, action, path, content } = req.body;

@@ -4,12 +4,13 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 import { useProjects } from "../hooks/useProjects";
+import NotificationDropdown from "../components/NotificationDropdown";
 import axios from "axios";
 import { toast } from "react-hot-toast";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
-const LANGUAGES = ["javascript","typescript","python","java","cpp","c","go","rust","php","ruby","html","css","markdown"];
+const LANGUAGES = ["java", "python", "react", "c", "csharp", "javascript"];
 const LANG_COLORS = { javascript:"#F7DF1E", typescript:"#3178C6", python:"#3776AB", java:"#ED8B00", cpp:"#00599C", go:"#00ADD8", rust:"#CE422B", html:"#E34F26", css:"#1572B6", markdown:"#083FA1" };
 
 export default function DashboardPage() {
@@ -47,7 +48,7 @@ export default function DashboardPage() {
   const [savingKey, setSavingKey] = useState(false);
 
   // New project form
-  const [newProject, setNewProject] = useState({ name: "", description: "", language: "javascript", isPublic: false });
+  const [newProject, setNewProject] = useState({ name: "", description: "", language: "java", isPublic: true });
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
@@ -117,7 +118,10 @@ export default function DashboardPage() {
       const p = await createProject(newProject);
       setShowCreate(false);
       navigate(`/editor/${p._id}`);
-    } catch (err) { toast.error("Failed to create"); }
+    } catch (err) { 
+      const msg = err.response?.data?.error || "Failed to create";
+      toast.error(msg);
+    }
     finally { setCreating(false); }
   };
 
@@ -139,12 +143,16 @@ export default function DashboardPage() {
               <span className="text-[9px] font-black text-green-400 uppercase tracking-wider">{globalCount} Live</span>
             </div>
           </div>
-          <div className="relative">
+          <div className="flex items-center gap-1 sm:gap-2">
+            <NotificationDropdown />
+            <button onClick={() => navigate("/search")} className="p-2 rounded-xl hover:bg-slate-900 border border-transparent hover:border-slate-800 transition text-slate-400 hover:text-white" title="Search Users & Projects">🔍</button>
+            <div className="relative">
             <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="flex items-center gap-2 p-1 pr-3 rounded-xl hover:bg-slate-900 border border-transparent hover:border-slate-800 transition">
               <img src={`https://ui-avatars.com/api/?name=${user?.username}&background=2563eb&color=fff&size=32`} className="w-8 h-8 rounded-lg" alt="" />
               <span className="text-[10px] text-slate-500">▼</span>
             </button>
             <AnimatePresence>{isMenuOpen && (<><div className="fixed inset-0 z-40" onClick={() => setIsMenuOpen(false)}/><motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="absolute top-12 right-0 w-48 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl py-2 z-50 overflow-hidden"><div className="px-4 py-2 border-b border-slate-800 mb-1"><p className="text-[9px] text-slate-500 uppercase font-black">Account</p><p className="text-sm font-bold truncate">{user?.username}</p></div><button onClick={() => { setActiveTab("settings"); setIsMenuOpen(false); }} className="w-full text-left px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-800 flex items-center gap-2 transition"><span>⚙️</span> Settings</button><button onClick={logout} className="w-full text-left px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 flex items-center gap-2 transition"><span>🚪</span> Sign Out</button></motion.div></>)}</AnimatePresence>
+            </div>
           </div>
         </div>
       </header>

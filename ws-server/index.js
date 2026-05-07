@@ -103,11 +103,14 @@ wss.on('connection', (conn, req) => {
     const fileId = fileIdMatch[1];
     const doc = getYDoc(roomName);
     const ytext = doc.getText('monaco');
+    let loaded = false;
     
     // Only load if the doc is empty (newly created in memory)
     if (ytext.length === 0) {
       File.findById(fileId).then(file => {
-        if (file && file.content && ytext.length === 0) {
+        // Check if already loaded to prevent duplicates
+        if (file && file.content && ytext.length === 0 && !loaded) {
+          loaded = true;
           console.log(`[PERSIST] Loading content for ${fileId} from DB (${file.content.length} chars)`);
           ytext.insert(0, file.content);
         }
