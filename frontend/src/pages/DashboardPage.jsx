@@ -9,8 +9,14 @@ import { toast } from "react-hot-toast";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
-const LANGUAGES = ["javascript","typescript","python","java","cpp","c","go","rust","php","ruby","html","css","markdown"];
-const LANG_COLORS = { javascript:"#F7DF1E", typescript:"#3178C6", python:"#3776AB", java:"#ED8B00", cpp:"#00599C", go:"#00ADD8", rust:"#CE422B", html:"#E34F26", css:"#1572B6", markdown:"#083FA1" };
+const LANGUAGES = ["java", "python", "react", "c", "csharp"];
+const LANG_COLORS = { 
+  java: "#ED8B00", 
+  python: "#3776AB", 
+  react: "#61DAFB", 
+  c: "#A8B9CC", 
+  csharp: "#239120" 
+};
 
 export default function DashboardPage() {
   const { user, logout } = useAuth();
@@ -21,13 +27,23 @@ export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get("tab");
-    return ["projects", "members", "stats", "settings"].includes(tab) ? tab : "projects";
+    return ["projects", "members", "stats", "settings", "search"].includes(tab) ? tab : "projects";
   });
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [activeMembers, setActiveMembers] = useState([]);
   const [stats, setStats] = useState({ totalProjects: 0, totalUsers: 0, totalCommits: 0 });
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  
+  // Search state
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [joinRequests, setJoinRequests] = useState([]);
+  const [loadingRequests, setLoadingRequests] = useState(false);
+  
+  // Invitations state
+  const [invitations, setInvitations] = useState([]);
+  const [loadingInvitations, setLoadingInvitations] = useState(false);
 
   // Sync tab with URL
   useEffect(() => {
@@ -47,7 +63,7 @@ export default function DashboardPage() {
   const [savingKey, setSavingKey] = useState(false);
 
   // New project form
-  const [newProject, setNewProject] = useState({ name: "", description: "", language: "javascript", isPublic: false });
+  const [newProject, setNewProject] = useState({ name: "", description: "", language: "java", isPublic: false });
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
@@ -117,9 +133,51 @@ export default function DashboardPage() {
       const p = await createProject(newProject);
       setShowCreate(false);
       navigate(`/editor/${p._id}`);
-    } catch (err) { toast.error("Failed to create"); }
+    } catch (err) { 
+      toast.error(err.response?.data?.error || "Project file name already exists"); 
+    }
     finally { setCreating(false); }
   };
+
+  const fetchInvitations = async () => {
+    setLoadingInvitations(true);
+    try {
+      const res = await axios.get(`${API}/projects/invitations`);
+      setInvitations(res.data);
+    } catch (err) { console.error(err); }
+    finally { setLoadingInvitations(false); }
+  };
+
+  const handleAcceptInvitation = async (invitationId) => {
+    try {
+      const res = await axios.post(`${API}/projects/invitations/${invitationId}/accept`);
+      toast.success("Joined project!");
+      setInvitations(prev => prev.filter(i => i._id !== invitationId));
+      if (res.data.project) {
+        navigate(`/editor/${res.data.project._id}`);
+      }
+    } catch (err) { toast.error(err.response?.data?.error || "Failed to accept"); }
+  };
+
+  const handleRejectInvitation = async (invitationId) => {
+    try {
+      await axios.post(`${API}/projects/invitations/${invitationId}/reject`);
+      toast.success("Invitation rejected");
+      setInvitations(prev => prev.filter(i => i._id !== invitationId));
+    } catch (err) { toast.error("Failed to reject"); }
+  };
+
+  useEffect(() => { 
+    fetchInvitations(); 
+    const interval = setInterval(fetchInvitations, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!socket) return;
+    socket.on("new_invitation", () => { fetchInvitations(); });
+    return () => socket.off("new_invitation");
+  }, [socket]);
 
   const TABS = [
     { id: "projects", label: "Projects", icon: "📁" },
@@ -170,6 +228,27 @@ export default function DashboardPage() {
             </div>
           ))}
         </div>
+
+        {/* Pending Invitations */}
+        {!loadingInvitations && invitations.length > 0 && (
+          <div className="mb-8 p-4 bg-gradient-to-r from-purple-900/30 to-blue-900/30 border border-purple-500/30 rounded-2xl">
+            <h3 className="text-sm font-black text-purple-300 uppercase tracking-wider mb-3">📬 Pending Invitations</h3>
+            <div className="space-y-3">
+              {invitations.map(inv => (
+                <div key={inv._id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-slate-900/60 rounded-xl border border-slate-800">
+                  <div>
+                    <p className="font-bold text-white">{inv.projectName}</p>
+                    <p className="text-xs text-slate-500">Role: {inv.role} • Invited to collaborate</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => handleAcceptInvitation(inv._id)} className="px-4 py-2 bg-green-600 hover:bg-green-500 text-white text-xs font-bold rounded-lg transition">Accept</button>
+                    <button onClick={() => handleRejectInvitation(inv._id)} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs font-bold rounded-lg transition">Reject</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="flex gap-1 mb-8 p-1 bg-slate-900/60 border border-slate-800 rounded-2xl w-full sm:w-fit overflow-x-auto no-scrollbar">
           {TABS.map(t => (<button key={t.id} onClick={() => setActiveTab(t.id)} className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${activeTab === t.id ? "bg-blue-600 text-white shadow-lg shadow-blue-900/50" : "text-slate-400 hover:text-white"}`}>{t.label}</button>))}
@@ -264,6 +343,40 @@ export default function DashboardPage() {
             </div>
           </div>
         )}
+
+        {activeTab === "members" && (
+          <div className="max-w-4xl mx-auto">
+            <div className="space-y-6">
+              {projects.filter(p => p.owner?._id === user?._id || p.owner === user?._id).map(project => (
+                <div key={project._id} className="p-6 rounded-2xl border border-slate-800 bg-slate-900/60">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="font-black text-white text-lg">{project.name}</h3>
+                      <p className="text-xs text-slate-500">{project.collaborators?.length || 0} members</p>
+                    </div>
+                    {project.owner?._id === user?._id || project.owner === user?._id ? (
+                      <button onClick={() => navigate(`/editor/${project._id}`)} className="text-xs text-blue-400 hover:text-blue-300">Manage →</button>
+                    ) : null}
+                  </div>
+                  
+                  <div className="space-y-2 mb-4">
+                    {project.collaborators?.map((c, i) => (
+                      <div key={i} className="flex items-center gap-3 p-2 bg-slate-950/40 rounded-lg">
+                        <img src={`https://ui-avatars.com/api/?name=${c.user?.username || 'U'}&background=2563eb&color=fff&size=24`} className="w-6 h-6 rounded-md" alt="" />
+                        <span className="text-sm text-slate-300">{c.user?.username || 'Unknown'}</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 uppercase">{c.role}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              
+              {projects.filter(p => p.owner?._id === user?._id || p.owner === user?._id).length === 0 && (
+                <div className="text-center py-12 text-slate-500">No projects where you are owner</div>
+              )}
+            </div>
+          </div>
+        )}
       </main>
 
       {/* Responsive Modal */}
@@ -276,8 +389,15 @@ export default function DashboardPage() {
                 <input value={newProject.name} onChange={e => setNewProject(n => ({ ...n, name: e.target.value }))} placeholder="Project Name" className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-2xl text-white text-sm" required />
                 <textarea value={newProject.description} onChange={e => setNewProject(n => ({ ...n, description: e.target.value }))} placeholder="Description" rows={3} className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-2xl text-white text-sm" />
                 <div className="grid grid-cols-3 gap-2">
-                  {["javascript", "python", "html", "rust"].map(l => (
-                    <button key={l} type="button" onClick={() => setNewProject(n => ({ ...n, language: l }))} className={`py-2 rounded-xl text-[10px] font-black uppercase transition ${newProject.language === l ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-500"}`}>{l}</button>
+                  {LANGUAGES.map(l => (
+                    <button 
+                      key={l} 
+                      type="button" 
+                      onClick={() => setNewProject(n => ({ ...n, language: l }))} 
+                      className={`py-2 rounded-xl text-[10px] font-black uppercase transition ${newProject.language === l ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-500"}`}
+                    >
+                      {l === 'csharp' ? 'C#' : l}
+                    </button>
                   ))}
                 </div>
                 <button type="submit" disabled={creating} className="w-full py-3.5 bg-blue-600 text-white font-black rounded-2xl text-xs uppercase tracking-widest">{creating ? "Creating..." : "Launch Project"}</button>

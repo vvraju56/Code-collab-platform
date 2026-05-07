@@ -54,54 +54,59 @@ export default function CollabEditor({
   const editorRef = useRef(null);
   const decorationsRef = useRef([]);
   const breakpointDecorationsRef = useRef([]);
-  const executionLineDecorationRef = useRef([]);
+  const executionLineDecorationRef = useRef(null);
   const monacoRef = useRef(null);
   const yBindingRef = useRef(null);
+  const aiProviderRef = useRef(null);
   const [breakpoints, setBreakpoints] = useState({}); // line -> boolean
 
-  function handleMount(editor, monaco) {
+function handleMount(editor, monaco) {
     editorRef.current = editor;
     monacoRef.current = monaco;
 
     monaco.editor.defineTheme("codebloc-dark", MONACO_THEME);
     monaco.editor.setTheme("codebloc-dark");
 
-    // AI Inline Suggestions Provider
-    const suggestionsProvider = monaco.languages.registerInlineCompletionsProvider(
-      { pattern: "**" },
-      {
-        provideInlineCompletions: async (model, position) => {
-          const code = model.getValue();
-          const language = model.getLanguageId();
-          
-          try {
-            const { data } = await axios.post(`${API}/ai/suggest`, {
-              code: code.substring(0, model.getOffsetAt(position)),
-              language,
-              fileName: file?.name || "unnamed"
-            });
+    // AI Inline Suggestions Provider - store disposable
+    try {
+      const disposable = monaco.languages.registerInlineCompletionsProvider(
+        { pattern: "**" },
+        {
+          provideInlineCompletions: async (model, position) => {
+            const code = model.getValue();
+            const language = model.getLanguageId();
+            
+            try {
+              const { data } = await axios.post(`${API}/ai/suggest`, {
+                code: code.substring(0, model.getOffsetAt(position)),
+                language,
+                fileName: file?.name || "unnamed"
+              });
 
-            if (data.ok && data.suggestion) {
-              return {
-                items: [{
-                  insertText: data.suggestion,
-                  range: new monaco.Range(
-                    position.lineNumber,
-                    position.column,
-                    position.lineNumber,
-                    position.column
-                  )
-                }]
-              };
+              if (data.ok && data.suggestion) {
+                return {
+                  items: [{
+                    insertText: data.suggestion,
+                    range: new monaco.Range(
+                      position.lineNumber,
+                      position.column,
+                      position.lineNumber,
+                      position.column
+                    )
+                  }]
+                };
+              }
+            } catch (e) {
+              // Silent fail
             }
-          } catch (e) {
-            console.error("AI Suggestion Error:", e);
+            return { items: [] };
           }
-          return { items: [] };
-        },
-        freeInlineCompletions: () => {}
-      }
-    );
+        }
+      );
+      aiProviderRef.current = disposable;
+    } catch (e) {
+      console.warn('AI suggestions not available');
+}
 
     // Breakpoint toggle on gutter click
     editor.onMouseDown((e) => {
@@ -118,10 +123,6 @@ export default function CollabEditor({
         column: e.position.column
       });
     });
-
-    return () => {
-      suggestionsProvider.dispose();
-    };
   }
 
   const toggleBreakpoint = (line) => {
@@ -243,10 +244,23 @@ export default function CollabEditor({
   useEffect(() => {
     // When switching files, rebind if editor already mounted.
     const editor = editorRef.current;
-    if (!editor || !ytext || !awareness) return;
+    if (!editor) {
+      console.log('[CollabEditor] Waiting for editor...');
+      return;
+    }
+    if (!ytext) {
+      console.log('[CollabEditor] No ytext yet, file:', file?._id);
+      return;
+    }
+    if (!awareness) {
+      console.log('[CollabEditor] No awareness yet');
+      return;
+    }
     
     const model = editor.getModel();
     if (!model) return;
+
+    console.log('[CollabEditor] Creating MonacoBinding for file:', file?._id);
 
     // Safely update language if it differs
     try {
@@ -264,8 +278,9 @@ export default function CollabEditor({
       new Set([editor]),
       awareness,
     );
+    console.log('[CollabEditor] MonacoBinding created successfully');
     return () => yBindingRef.current?.destroy?.();
-  }, [file?._id, ytext, awareness, monacoLang]);
+  }, [file?._id, ytext, awareness, monacoLang, editorRef.current]);
 
   return (
     <div className="h-full w-full relative">

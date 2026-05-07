@@ -44,8 +44,11 @@ router.post("/commit", async (req, res) => {
 
     const project = await Project.findById(file.project);
     if (!project) return res.status(404).json({ error: "Project not found" });
+    
+    // Allow commit for owners, editors, and admins
+    const isOwner = project.owner?.toString() === req.user._id.toString();
     const role = getRoleForProject(project, req.user._id);
-    if (!role || (role !== "editor" && role !== "admin")) {
+    if (!isOwner && (!role || role === "viewer")) {
       return res.status(403).json({ error: "Insufficient permissions" });
     }
 

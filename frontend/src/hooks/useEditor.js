@@ -6,7 +6,7 @@ import { useYjsFile } from "./useYjsFile";
 const API = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
 export function useEditor(projectId, socket) {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [files, setFiles] = useState([]);
   const [activeFile, setActiveFile] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -18,23 +18,43 @@ export function useEditor(projectId, socket) {
     fileId: activeFile?._id,
     token,
     enabled: Boolean(activeFile?._id),
+    user
   });
 
   const [content, setContent] = useState("");
+  const lastContentRef = useRef("");
   useEffect(() => {
     if (!ytext) return;
-    const update = () => setContent(ytext.toString());
+    const update = () => {
+      const newContent = ytext.toString();
+      // Only update if content actually changed (prevent duplicates)
+      if (newContent !== lastContentRef.current) {
+        lastContentRef.current = newContent;
+        setContent(newContent);
+      }
+    };
     update();
     ytext.observe(update);
-    return () => ytext.unobserve(update);
+    return () => {
+      ytext.unobserve(update);
+      lastContentRef.current = "";
+    };
   }, [ytext]);
 
   // Load files
   const loadFiles = useCallback(async () => {
-    if (!projectId) return;
-    const { data } = await axios.get(`${API}/files/project/${projectId}`);
-    setFiles(data);
-    if (data.length > 0 && !activeFile) openFile(data[0]);
+    console.log('loadFiles called, projectId:', projectId, 'activeFile:', activeFile?._id);
+    if (!projectId) {
+      return;
+    }
+    try {
+      const { data } = await axios.get(`${API}/files/project/${projectId}`);
+      console.log('loadFiles: got', data.length, 'files');
+      setFiles(data);
+      // Don't auto-open file on refresh - keep current file
+    } catch (err) {
+      console.error('loadFiles error:', err);
+    }
   }, [projectId]);
 
   useEffect(() => { loadFiles(); }, [loadFiles]);

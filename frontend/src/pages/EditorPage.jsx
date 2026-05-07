@@ -32,12 +32,25 @@ export default function EditorPage() {
   const [inviting, setInviting] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [myRole, setMyRole] = useState("viewer");
+  const [projectInvitations, setProjectInvitations] = useState([]);
+  const [joinRequests, setJoinRequests] = useState([]);
 
   const {
     files, activeFile, content, projectUsers, cursors,
     ydoc, ytext, awareness,
-    openFile, handleCodeChange, handleCursorMove, createFile, deleteFile
+    openFile, handleCodeChange, handleCursorMove, createFile, deleteFile, loadFiles
   } = useEditor(projectId, socket);
+
+  // Real-time stats
+  const [stats, setStats] = useState({ files: 0, collaborators: 0, usersOnline: 0 });
+  
+  useEffect(() => {
+    setStats({
+      files: files?.length || 0,
+      collaborators: project?.collaborators?.length || 0,
+      usersOnline: projectUsers?.length || 0
+    });
+  }, [files, projectUsers, project]);
 
   // Responsive listener
   useEffect(() => {
@@ -67,6 +80,8 @@ export default function EditorPage() {
     if (!project || !user) return;
     if (project.owner?._id === user._id) {
       setMyRole("admin");
+      axios.get(`${API}/projects/${projectId}/invitations`).then(r => setProjectInvitations(r.data || [])).catch(() => {});
+      axios.get(`${API}/projects/${projectId}/requests`).then(r => setJoinRequests(r.data || [])).catch(() => {});
       return;
     }
     const c = project.collaborators?.find((x) => x.user?._id === user._id);
@@ -78,17 +93,54 @@ export default function EditorPage() {
     if (!inviteUsername.trim()) return;
     setInviting(true);
     try {
-      const { data } = await axios.post(`${API}/projects/${projectId}/collaborators`, {
+      await axios.post(`${API}/projects/${projectId}/invite`, {
         username: inviteUsername.trim(),
         role: "editor"
       });
-      setProject(data);
       setInviteUsername("");
       setShowInvite(false);
-      toast.success(`Invited ${inviteUsername}!`);
+      toast.success(`Invitation sent to ${inviteUsername}!`);
     } catch (err) {
-      toast.error(err.response?.data?.error || "Could not invite user");
+      toast.error(err.response?.data?.error || "Could not send invitation");
     } finally { setInviting(false); }
+  };
+
+  const handleAcceptRequest = async (requestId) => {
+    try {
+      await axios.post(`${API}/projects/${projectId}/requests/${requestId}/accept`);
+      setJoinRequests(prev => prev.filter(r => r._id !== requestId));
+      const proj = await axios.get(`${API}/projects/${projectId}`);
+      setProject(proj.data);
+      toast.success("Request accepted!");
+    } catch (err) { toast.error("Failed to accept"); }
+  };
+
+  const handleRejectRequest = async (requestId) => {
+    try {
+      await axios.post(`${API}/projects/${projectId}/requests/${requestId}/reject`);
+      setJoinRequests(prev => prev.filter(r => r._id !== requestId));
+      toast.success("Request rejected");
+    } catch (err) { toast.error("Failed to reject"); }
+  };
+
+  const handleCancelInvitation = async (invitationId) => {
+    try {
+      await axios.delete(`${API}/projects/${projectId}/invitations/${invitationId}`);
+      setProjectInvitations(prev => prev.filter(i => i._id !== invitationId));
+      toast.success("Invitation cancelled");
+    } catch (err) { toast.error("Failed to cancel"); }
+  };
+
+  const handleRemoveCollaborator = async (userId) => {
+    if (!window.confirm("Remove this member from the project?")) return;
+    try {
+      await axios.delete(`${API}/projects/${projectId}/collaborators/${userId}`);
+      setProject(prev => ({
+        ...prev,
+        collaborators: prev.collaborators.filter(c => c.user._id !== userId && c.user !== userId)
+      }));
+      toast.success("Member removed");
+    } catch (err) { toast.error("Failed to remove member"); }
   };
 
   const RIGHT_TABS = [
@@ -161,6 +213,16 @@ export default function EditorPage() {
 
         {/* Right: Status & Actions */}
         <div className="ml-auto flex items-center gap-2">
+          {/* Refresh Button */}
+          <button
+            type="button"
+            onClick={() => { loadFiles(); }}
+            title="Refresh files"
+            className="flex items-center justify-center w-8 h-8 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-all text-lg"
+          >
+            ↻
+          </button>
+
           {/* Status Indicators */}
           <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800">
             <span className="relative flex h-1.5 w-1.5">
@@ -226,7 +288,50 @@ export default function EditorPage() {
                         {c.user?.username?.charAt(0).toUpperCase()}
                       </div>
                       <span className="text-xs text-slate-400 group-hover:text-white transition-colors truncate">{c.user?.username}</span>
-                      <span className="ml-auto text-[8px] font-black text-slate-600 uppercase tracking-tighter">{c.role}</span>
+                      <span className="text-[8px] font-black text-slate-600 uppercase tracking-tighter">{c.role}</span>
+                      {myRole === "admin" && (
+                        <button onClick={() => handleRemoveCollaborator(c.user?._id || c.user)} className="ml-auto text-[8px] text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition">✕</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {myRole === "admin" && projectInvitations?.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-slate-800">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[9px] font-black text-purple-400 uppercase tracking-widest">Pending Invites</span>
+                  <span className="text-[9px] font-bold text-purple-500">{projectInvitations.length}</span>
+                </div>
+                <div className="space-y-2">
+                  {projectInvitations.filter(i => i.status === "pending").map(inv => (
+                    <div key={inv._id} className="flex items-center justify-between gap-2 text-xs text-slate-500">
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-400">{inv.username || inv.email}</span>
+                        <span className="text-[8px] px-1 py-0.5 bg-slate-800 rounded uppercase">{inv.role}</span>
+                      </div>
+                      <button onClick={() => handleCancelInvitation(inv._id)} className="text-slate-600 hover:text-red-400 text-[8px]">✕</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {myRole === "admin" && joinRequests?.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-slate-800">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[9px] font-black text-orange-400 uppercase tracking-widest">Join Requests</span>
+                  <span className="text-[9px] font-bold text-orange-500">{joinRequests.length}</span>
+                </div>
+                <div className="space-y-2">
+                  {joinRequests.filter(r => r.status === "pending").map(req => (
+                    <div key={req._id} className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-slate-400">{req.username}</span>
+                      <div className="flex gap-1">
+                        <button onClick={() => handleAcceptRequest(req._id)} className="text-[8px] px-1.5 py-0.5 bg-green-600 hover:bg-green-500 rounded text-white">✓</button>
+                        <button onClick={() => handleRejectRequest(req._id)} className="text-[8px] px-1.5 py-0.5 bg-slate-700 hover:bg-slate-600 rounded text-slate-400">✕</button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -265,7 +370,7 @@ export default function EditorPage() {
                   <button onClick={() => setSidebarOpen(false)} className="text-slate-500">✕</button>
                 </div>
               )}
-              <div className="flex-1 overflow-hidden">
+              <div className="flex-1 overflow-hidden flex flex-col">
                 <FileTree
                   files={files}
                   activeFile={activeFile}
@@ -273,6 +378,46 @@ export default function EditorPage() {
                   onCreateFile={createFile}
                   onDeleteFile={deleteFile}
                 />
+                
+                {/* Stats Section */}
+                <div className="border-t border-slate-800 p-3 bg-slate-900/50">
+                  <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2">Stats</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="text-center">
+                      <div className="text-lg font-black text-blue-400">{stats.files}</div>
+                      <div className="text-[8px] text-slate-600 uppercase">Files</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-lg font-black text-green-400">{stats.collaborators}</div>
+                      <div className="text-[8px] text-slate-600 uppercase">Team</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-lg font-black text-purple-400">{stats.usersOnline}</div>
+                      <div className="text-[8px] text-slate-600 uppercase">Online</div>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Team Online Section */}
+                <div className="border-t border-slate-800 p-3">
+                  <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2">Team Online</div>
+                  {projectUsers.length > 0 ? (
+                    <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                      {projectUsers.map((u, i) => (
+                        <div key={u.socketId || i} className="flex items-center gap-2">
+                          <div 
+                            className="w-2 h-2 rounded-full" 
+                            style={{ backgroundColor: u.cursorColor || '#3b82f6' }}
+                          />
+                          <span className="text-xs text-slate-400 truncate">{u.username || 'Unknown'}</span>
+                          <span className="ml-auto text-[8px] text-green-500">●</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-[10px] text-slate-600 text-center py-2">No one online</div>
+                  )}
+                </div>
               </div>
             </motion.aside>
           )}
@@ -397,7 +542,7 @@ export default function EditorPage() {
                   <VersionPanel projectId={projectId} activeFile={activeFile} />
                 )}
                 {rightPanel === "run" && (
-                  <ExecutionPanel content={content} language={activeFile?.language || "javascript"} />
+                  <ExecutionPanel content={content} language={activeFile?.language || "javascript"} activeFile={activeFile} />
                 )}
                 {rightPanel === "ai" && (
                   <AIAssistantPanel

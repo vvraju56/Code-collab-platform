@@ -86,8 +86,31 @@ function initSocket(io) {
     });
 
     // ─── WebRTC SIGNALING ───────────────────────────────────────────────────
+    socket.on("webrtc_offer", ({ to, offer, projectId }) => {
+      console.log('[Socket] Forwarding offer to:', to);
+      io.to(to).emit("webrtc_offer", {
+        from: socket.id,
+        offer
+      });
+    });
+
+    socket.on("webrtc_answer", ({ to, answer, projectId }) => {
+      console.log('[Socket] Forwarding answer to:', to);
+      io.to(to).emit("webrtc_answer", {
+        from: socket.id,
+        answer
+      });
+    });
+
+    socket.on("webrtc_ice", ({ to, candidate, projectId }) => {
+      io.to(to).emit("webrtc_ice", {
+        from: socket.id,
+        candidate
+      });
+    });
+
+    // Legacy webrtc_signal handler
     socket.on("webrtc_signal", ({ to, signal, type, projectId }) => {
-      // Signaling for video/audio/screen share
       io.to(to).emit("webrtc_signal", {
         from: socket.id,
         signal,
@@ -106,6 +129,42 @@ function initSocket(io) {
         type, // 'video' | 'audio' | 'screen'
         enabled
       });
+    });
+
+    // ─── CALL NOTIFICATIONS ───────────────────────────────────────────────────
+    socket.on("call_started", ({ projectId }) => {
+      const room = `project:${projectId}`;
+      socket.to(room).emit("call_started", {
+        from: socket.id,
+        username: user.username
+      });
+      console.log(`[Call] ${user.username} started a call in project ${projectId}`);
+    });
+
+    socket.on("call_ended", ({ projectId }) => {
+      const room = `project:${projectId}`;
+      socket.to(room).emit("call_ended", {
+        from: socket.id
+      });
+      console.log(`[Call] ${user.username} ended the call`);
+    });
+
+    socket.on("call_left", ({ projectId }) => {
+      const room = `project:${projectId}`;
+      socket.to(room).emit("call_left", {
+        from: socket.id,
+        username: user.username
+      });
+      console.log(`[Call] ${user.username} left the call`);
+    });
+
+    socket.on("call_joined", ({ projectId }) => {
+      const room = `project:${projectId}`;
+      socket.to(room).emit("call_joined", {
+        from: socket.id,
+        username: user.username
+      });
+      console.log(`[Call] ${user.username} joined the call`);
     });
 
     // ─── SHARED DEBUGGING ───────────────────────────────────────────────────

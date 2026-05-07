@@ -3,6 +3,7 @@ const Project = require("../models/Project");
 const File = require("../models/File");
 const User = require("../models/User");
 const { authMiddleware } = require("../middleware/auth");
+const { getSocketIO } = require("../utils/socketHelpers");
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -37,6 +38,11 @@ router.post("/", async (req, res) => {
       return res.status(401).json({ error: "Unauthorized: User not found" });
     }
 
+    const existingProject = await Project.findOne({ name: name.trim() });
+    if (existingProject) {
+      return res.status(400).json({ error: "Project file name already exists" });
+    }
+
     const project = await Project.create({
       name,
       description,
@@ -63,6 +69,130 @@ router.post("/", async (req, res) => {
     res.status(201).json(populated);
   } catch (err) {
     console.error("🚀 Error in POST /api/projects:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/projects/invitations - get current user's pending invitations
+router.get("/invitations", async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(401).json({ error: "User not found" });
+    
+    const userEmail = user.email;
+    const userId = user._id;
+    
+    const projects = await Project.find({
+      $or: [
+        { "invitations.email": userEmail, "invitations.status": "pending" },
+        { "invitations.userId": userId, "invitations.status": "pending" }
+      ]
+    }).select("name owner invitations description language");
+
+    const invitations = [];
+    for (const project of projects) {
+      const inv = project.invitations.find(i => 
+        (i.email === userEmail || (i.userId && i.userId.toString() === userId.toString())) && 
+        i.status === "pending"
+      );
+      if (inv) {
+        invitations.push({
+          _id: inv._id,
+          projectId: project._id,
+          projectName: project.name,
+          projectDescription: project.description,
+          projectLanguage: project.language,
+          role: inv.role,
+          invitedBy: inv.invitedBy,
+          invitedAt: inv.invitedAt
+        });
+      }
+    }
+    
+    res.json(invitations);
+  } catch (err) {
+    console.error("Error fetching invitations:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/projects/invitations/:invitationId/accept - accept invitation
+router.post("/invitations/:invitationId/accept", async (req, res) => {
+  try {
+    const invitationId = req.params.invitationId;
+    
+    const project = await Project.findOne({
+      "invitations._id": invitationId,
+      "invitations.status": "pending"
+    });
+    
+    if (!project) return res.status(404).json({ error: "Invitation not found" });
+    
+    const user = await User.findById(req.user._id);
+    const invitation = project.invitations.id(invitationId);
+    
+    if (invitation.email !== user.email && invitation.userId?.toString() !== user._id.toString()) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+    
+    const alreadyMember = project.collaborators.some(c => c.user.toString() === req.user._id.toString());
+    if (alreadyMember) {
+      invitation.status = "accepted";
+      await project.save();
+      return res.json({ ok: true, message: "Already a collaborator" });
+    }
+    
+    project.collaborators.push({
+      user: req.user._id,
+      role: invitation.role || "editor",
+      joinedAt: new Date()
+    });
+    
+    invitation.status = "accepted";
+    await project.save();
+    
+    const populated = await Project.findById(project._id)
+      .populate("owner", "username email cursorColor")
+      .populate("collaborators.user", "username email cursorColor");
+    
+    const io = getSocketIO();
+    if (io) {
+      io.to(`project:${project._id}`).emit("collaborator_joined", {
+        projectId: project._id,
+        user: { _id: req.user._id, username: req.user.username }
+      });
+    }
+    
+    res.json({ ok: true, project: populated });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/projects/invitations/:invitationId/reject - reject invitation
+router.post("/invitations/:invitationId/reject", async (req, res) => {
+  try {
+    const invitationId = req.params.invitationId;
+    
+    const project = await Project.findOne({
+      "invitations._id": invitationId,
+      "invitations.status": "pending"
+    });
+    
+    if (!project) return res.status(404).json({ error: "Invitation not found" });
+    
+    const user = await User.findById(req.user._id);
+    const invitation = project.invitations.id(invitationId);
+    
+    if (invitation.email !== user.email && invitation.userId?.toString() !== user._id.toString()) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+    
+    invitation.status = "rejected";
+    await project.save();
+    
+    res.json({ ok: true, message: "Invitation rejected" });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
@@ -126,7 +256,62 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
-// POST /api/projects/:id/collaborators — invite collaborator by username
+// POST /api/projects/:id/invite — invite user by username
+router.post("/:id/invite", async (req, res) => {
+  try {
+    const { username, email, role } = req.body;
+    const project = await Project.findById(req.params.id);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    if (project.owner.toString() !== req.user._id.toString())
+      return res.status(403).json({ error: "Only owner can invite users" });
+
+    let invitee = null;
+    if (username) {
+      invitee = await User.findOne({ username });
+    } else if (email) {
+      invitee = await User.findOne({ email });
+    }
+    
+    if (!invitee) return res.status(404).json({ error: "User not found" });
+
+    const alreadyIn = project.collaborators.some(c => c.user.toString() === invitee._id.toString());
+    if (alreadyIn) return res.status(400).json({ error: "User is already a collaborator" });
+
+    const alreadyInvited = project.invitations?.some(i => 
+      (i.email === invitee.email || (i.userId && i.userId.toString() === invitee._id.toString())) && 
+      i.status === 'pending'
+    );
+    if (alreadyInvited) return res.status(400).json({ error: "Invitation already sent" });
+
+    if (!project.invitations) project.invitations = [];
+    project.invitations.push({
+      email: invitee.email,
+      userId: invitee._id,
+      username: invitee.username,
+      role: role || "editor",
+      status: "pending",
+      invitedBy: req.user._id,
+      invitedAt: new Date()
+    });
+    await project.save();
+
+    const io = getSocketIO();
+    if (io) {
+      io.emit("new_invitation", {
+        projectId: project._id,
+        projectName: project.name,
+        from: req.user.username,
+        to: invitee._id
+      });
+    }
+
+    res.json({ ok: true, message: "Invitation sent" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/projects/:id/collaborators — add collaborator directly (for testing)
 router.post("/:id/collaborators", async (req, res) => {
   try {
     const { username, role } = req.body;
@@ -195,5 +380,169 @@ function getDefaultContent(language, projectName) {
   };
   return map[language] || `// ${projectName}\n`;
 }
+
+// GET /api/projects/search - search public projects
+router.get("/search", async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q || q.length < 2) return res.json([]);
+    
+    const projects = await Project.find({
+      name: { $regex: q, $options: 'i' },
+      isPublic: true
+    })
+      .populate("owner", "username")
+      .select("name description language isPublic owner createdAt")
+      .limit(20);
+    
+    res.json(projects);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/projects/:id/join - request to join a project
+router.post("/:id/join", async (req, res) => {
+  try {
+    const project = await Project.findById(req.params.id);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    
+    // Check if already a member
+    const isOwner = project.owner.toString() === req.user._id.toString();
+    const isCollaborator = project.collaborators.some(c => c.user.toString() === req.user._id.toString());
+    const hasRequest = project.joinRequests?.some(r => r.user.toString() === req.user._id.toString());
+    
+    if (isOwner || isCollaborator) return res.status(400).json({ error: "Already a member" });
+    if (hasRequest) return res.status(400).json({ error: "Request already sent" });
+    
+    // Add join request
+    if (!project.joinRequests) project.joinRequests = [];
+    project.joinRequests.push({
+      user: req.user._id,
+      username: req.user.username,
+      status: 'pending',
+      requestedAt: new Date()
+    });
+    await project.save();
+    
+    // Notify project owner via socket
+    const io = getSocketIO();
+    if (io) {
+      io.to(`project:${project._id}`).emit("join_request", {
+        projectId: project._id,
+        user: { _id: req.user._id, username: req.user.username }
+      });
+    }
+    
+    res.json({ ok: true, message: "Join request sent" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/projects/:id/requests - get join requests (owner only)
+router.get("/:id/requests", async (req, res) => {
+  try {
+    const project = await Project.findById(req.params.id);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    
+    if (project.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: "Only owner can view requests" });
+    }
+    
+    res.json(project.joinRequests || []);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/projects/:id/requests/:requestId/accept - accept join request
+router.post("/:id/requests/:requestId/accept", async (req, res) => {
+  try {
+    const project = await Project.findById(req.params.id);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    
+    if (project.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: "Only owner can accept requests" });
+    }
+    
+    const request = project.joinRequests?.id(req.params.requestId);
+    if (!request) return res.status(404).json({ error: "Request not found" });
+    
+    // Add as collaborator
+    project.collaborators.push({ user: request.user, role: 'editor' });
+    
+    // Remove from requests
+    project.joinRequests = project.joinRequests.filter(r => r._id.toString() !== req.params.requestId);
+    await project.save();
+    
+    // Notify the user
+    const io = getSocketIO();
+    if (io) {
+      io.to(`project:${project._id}`).emit("join_accepted", {
+        projectId: project._id,
+        userId: request.user
+      });
+    }
+    
+    res.json({ ok: true, message: "Request accepted" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/projects/:id/requests/:requestId/reject - reject join request
+router.post("/:id/requests/:requestId/reject", async (req, res) => {
+  try {
+    const project = await Project.findById(req.params.id);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    
+    if (project.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: "Only owner can reject requests" });
+    }
+    
+    project.joinRequests = project.joinRequests.filter(r => r._id.toString() !== req.params.requestId);
+    await project.save();
+    
+    res.json({ ok: true, message: "Request rejected" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/projects/:id/invitations - get project invitations (owner only)
+router.get("/:id/invitations", async (req, res) => {
+  try {
+    const project = await Project.findById(req.params.id);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    
+    if (project.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: "Only owner can view invitations" });
+    }
+    
+    res.json(project.invitations || []);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/projects/:id/invitations/:invitationId - cancel invitation (owner only)
+router.delete("/:id/invitations/:invitationId", async (req, res) => {
+  try {
+    const project = await Project.findById(req.params.id);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    
+    if (project.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: "Only owner can cancel invitations" });
+    }
+    
+    project.invitations = project.invitations.filter(i => i._id.toString() !== req.params.invitationId);
+    await project.save();
+    
+    res.json({ ok: true, message: "Invitation cancelled" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 module.exports = router;
