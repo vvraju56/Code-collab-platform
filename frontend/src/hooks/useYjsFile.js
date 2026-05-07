@@ -2,7 +2,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as Y from "yjs";
 import { WebsocketProvider } from "y-websocket";
 
-const WS_SERVER_URL = import.meta.env.VITE_WS_SERVER_URL || import.meta.env.VITE_API_URL?.replace("/api", "").replace("http", "ws") || "ws://localhost:5000";
+const getWebSocketURL = () => {
+  if (import.meta.env.VITE_WS_SERVER_URL) return import.meta.env.VITE_WS_SERVER_URL;
+  
+  const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+  const baseUrl = apiUrl.replace("/api", "");
+  
+  // Use wss:// for production (HTTPS), ws:// for development
+  const protocol = baseUrl.startsWith("https") ? "wss" : "ws";
+  return `${protocol}://${baseUrl.replace(/^https?:\/\//, "")}/yjs`;
+};
 
 export function useYjsFile({ fileId, token, enabled, user }) {
   const [status, setStatus] = useState("disconnected");
@@ -25,10 +34,11 @@ export function useYjsFile({ fileId, token, enabled, user }) {
     setYdoc(newYdoc);
 
     const roomName = `file:${fileId}`;
-    console.log(`[YJS] Connecting to room: ${roomName} at ${WS_SERVER_URL}`);
+    const wsUrl = getWebSocketURL();
+    console.log(`[YJS] Connecting to room: ${roomName} at ${wsUrl}`);
     
     const provider = new WebsocketProvider(
-      WS_SERVER_URL,
+      wsUrl,
       roomName,
       newYdoc,
       { params: { token } }

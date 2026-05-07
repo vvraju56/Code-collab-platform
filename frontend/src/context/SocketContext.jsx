@@ -4,7 +4,10 @@ import { useAuth } from "./AuthContext";
 
 const SocketContext = createContext(null);
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || API_URL.replace("/api", "");
+const getSocketURL = () => {
+  if (import.meta.env.VITE_SOCKET_URL) return import.meta.env.VITE_SOCKET_URL;
+  return API_URL.replace("/api", "");
+};
 
 export function SocketProvider({ children }) {
   const { token, user } = useAuth();
@@ -22,7 +25,7 @@ export function SocketProvider({ children }) {
       return;
     }
 
-    const socketInstance = io(SOCKET_URL, {
+    const socketInstance = io(getSocketURL(), {
       auth: { token },
       // Removed restricted transports to allow polling fallback
       reconnection: true,
